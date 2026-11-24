@@ -94,3 +94,20 @@ contract id or reuse a mainnet address.
 - Rate limiting is enabled; tune `RATE_LIMIT_PER_MINUTE` for your environment.
 - This is a demonstration deployment. It is not a production payment processor, holds
   no real funds, and carries no licenses or regulatory approvals.
+
+## Live deployment status (this environment)
+
+| Item | Status |
+|---|---|
+| Source repository | <https://github.com/sudo-robi/bizflow> |
+| Release | <https://github.com/sudo-robi/bizflow/releases/tag/v0.1.0> |
+| Container packages (GHCR) | **Blocked**: publishing images requires a GitHub Actions workflow, and the available token lacks the `workflow` scope. Both `git push` and the GitHub API reject `.github/workflows/*` with `Insufficient scope: required "repo workflow"`. The workflow files are prepared locally but cannot be committed here. |
+| Public host | **Blocked**: no hosting account/credentials (VPS, Fly.io, Render, Vercel, Cloudflare account) are configured. Account-less Cloudflare quick tunnel failed with a timeout to `api.trycloudflare.com`. |
+| Local stack | Backend verified live on `:8000` (health 200, 54 API paths); frontend verified live on `:3000` (HTTP 200). |
+
+To publish images, grant a token with `workflow` + `write:packages` scope and commit
+`.github/workflows/release.yml` (it builds and pushes `ghcr.io/<owner>/bizflow-backend`
+and `ghcr.io/<owner>/bizflow-frontend`, then publishes release notes). To expose the
+stack publicly, provide a host/credentials; `docker compose up --build -d` plus a TLS
+reverse proxy forwarding `/api/v1` to the backend is sufficient. No public URL is
+claimed until it has actually been deployed and health-checked.
