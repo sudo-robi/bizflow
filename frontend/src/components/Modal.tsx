@@ -9,6 +9,8 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   description?: string;
+  /** Id of a description rendered in children (e.g. ConfirmModal's message). */
+  describedBy?: string;
   children: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
@@ -16,7 +18,7 @@ interface ModalProps {
 
 const widthFor = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
 
-export function Modal({ open, onClose, title, description, children, footer, size = "md" }: ModalProps) {
+export function Modal({ open, onClose, title, description, describedBy, children, footer, size = "md" }: ModalProps) {
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -66,7 +68,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
+        aria-describedby={describedBy || (description ? descriptionId : undefined)}
         className={`relative z-10 flex max-h-[92vh] w-full ${widthFor[size]} animate-slide-up flex-col overflow-hidden rounded-t-2xl bg-white shadow-modal sm:rounded-2xl`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">

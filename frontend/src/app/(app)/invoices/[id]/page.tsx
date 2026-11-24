@@ -31,6 +31,12 @@ function unwrapPayments(value: unknown): Payment[] {
   return [];
 }
 
+interface InvoiceDetailData {
+  invoice: Invoice;
+  supplier: Supplier | null;
+  payments: Payment[];
+}
+
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -45,15 +51,19 @@ export default function InvoiceDetailPage() {
   const [payAmount, setPayAmount] = useState("");
   const decisionRef = useRef<{ resolve: (value: boolean) => void } | null>(null);
 
-  const { data: invoice, loading, error, reload, setData } = useApiResource<Invoice>(() => api.get(`/invoices/${id}`), [id]);
   // The invoice response has no embedded supplier or payments; load both from
   // their real endpoints so the detail view never shows invented relationships.
-  const { data: supplier } = useApiResource<Supplier>(
-    () => api.get<Supplier>(`/suppliers/${invoice?.supplier_id}`),
-    [invoice?.supplier_id],
-    !!invoice?.supplier_id,
-  );
-  const { data: paymentsData } = useApiResource<unknown>(() => api.get(`/payments?invoice_id=${id}&per_page=100`), [id]);
+  const { data, loading, error, reload, setData } = useApiResource<InvoiceDetailData>(async () => {
+    const invoice = await api.get<Invoice>(`/invoices/${id}`);
+    const [supplier, payments] = await Promise.all([
+      invoice.supplier_id ? api.get<Supplier>(`/suppliers/${invoice.supplier_id}`).catch(() => null) : Promise.resolve(null),
+      api.get<unknown>(`/payments?invoice_id=${id}&per_page=100`).then(unwrapPayments),
+    ]);
+    return { invoice, supplier, payments };
+  }, [id]);
+  const invoice = data?.invoice;
+  const supplier = data?.supplier;
+  const payments = data?.payments || [];
 
   const askApproval = (transaction: TransactionDetails): Promise<boolean> =>
     new Promise((resolve) => {
@@ -124,7 +134,6 @@ export default function InvoiceDetailPage() {
   if (error) return <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>;
   if (!invoice) return null;
 
-  const payments = unwrapPayments(paymentsData);
   const canEdit = can("owner", "admin", "finance_manager") && ["draft", "pending"].includes(invoice.status);
 
   return (
@@ -282,7 +291,7 @@ export default function InvoiceDetailPage() {
         <EditInvoiceModal
           invoice={invoice}
           onClose={() => setEditing(false)}
-          onSaved={(updated) => { setData(updated); setEditing(false); }}
+          onSaved={(updated) => { setData((current) => current ? { ...current, invoice: updated } : current); setEditing(false); }}
         />
       ) : null}
 

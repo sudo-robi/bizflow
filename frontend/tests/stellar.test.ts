@@ -47,11 +47,11 @@ vi.mock("../src/lib/api", () => ({
   getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : "Something went wrong. Please try again."),
 }));
 
-const mockedGetAddress = vi.mocked(getAddress);
-const mockedGetNetwork = vi.mocked(freighterGetNetwork);
-const mockedIsConnected = vi.mocked(freighterIsConnected);
-const mockedRequestAccess = vi.mocked(freighterRequestAccess);
-const mockedSign = vi.mocked(freighterSignTransaction);
+const mockedGetAddress = vi.mocked(getAddress) as unknown as ReturnType<typeof vi.fn>;
+const mockedGetNetwork = vi.mocked(freighterGetNetwork) as unknown as ReturnType<typeof vi.fn>;
+const mockedIsConnected = vi.mocked(freighterIsConnected) as unknown as ReturnType<typeof vi.fn>;
+const mockedRequestAccess = vi.mocked(freighterRequestAccess) as unknown as ReturnType<typeof vi.fn>;
+const mockedSign = vi.mocked(freighterSignTransaction) as unknown as ReturnType<typeof vi.fn>;
 const mockedFromXDR = vi.mocked(TransactionBuilder.fromXDR);
 const mockedPost = vi.mocked(api.post);
 

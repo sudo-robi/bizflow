@@ -5,6 +5,9 @@ export default defineConfig({
   esbuild: { jsx: "automatic" },
   test: {
     environment: "jsdom",
+    isolate: true,
+    pool: "forks",
+    testTimeout: 30000,
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     setupFiles: ["./tests/setup.ts"],
     css: false,

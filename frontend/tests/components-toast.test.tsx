@@ -43,10 +43,10 @@ describe("ToastProvider", () => {
     expect(screen.getByText("Info")).toBeInTheDocument();
     expect(screen.getByText("Careful")).toBeInTheDocument();
     expect(screen.getByText("Check this")).toBeInTheDocument();
-    expect(screen.getAllByRole("status")).toHaveLength(4);
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(4);
 
     act(() => vi.advanceTimersByTime(6000));
-    expect(screen.queryAllByRole("status")).toHaveLength(0);
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
   });
 
   it("caps the visible toasts at four and dismisses manually", () => {
@@ -57,17 +57,17 @@ describe("ToastProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "warning" }));
     fireEvent.click(screen.getByRole("button", { name: "success" }));
     fireEvent.click(screen.getByRole("button", { name: "error" }));
-    expect(screen.getAllByRole("status")).toHaveLength(4);
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(4);
     expect(screen.getAllByText("Failed")).toHaveLength(1);
 
     const firstDismiss = screen.getAllByRole("button", { name: "Dismiss notification" })[0];
     fireEvent.click(firstDismiss);
-    expect(screen.getAllByRole("status")).toHaveLength(3);
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(3);
   });
 
   it("dismisses by id via the context API", () => {
     render(<ToastProvider><Harness /></ToastProvider>);
     fireEvent.click(screen.getByRole("button", { name: "dismiss-all-known" }));
-    expect(screen.queryAllByRole("status")).toHaveLength(0);
+    expect(document.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ActivityChart from "../src/components/ActivityChart";
 import { StatusChart, VolumeChart } from "../src/components/ReportsCharts";
@@ -63,6 +63,11 @@ describe("ActivityChart", () => {
   it("handles an empty activity list", () => {
     render(<ActivityChart activity={[]} />);
     expect(captured.areaChart?.data).toEqual([]);
+  });
+
+  it("exposes an empty volume summary when there are no points", () => {
+    render(<VolumeChart activity={[]} />);
+    expect(screen.getByRole("img")).toHaveAttribute("aria-label", "No confirmed payment volume recorded yet.");
   });
 
   it("formats tooltip values and exposes an empty-state summary", () => {
@@ -205,10 +210,10 @@ describe("TableToolbar / FilterTabs", () => {
         onChange={onChange}
       />,
     );
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    const tabs = within(screen.getByRole("group", { name: "Filter by status" })).getAllByRole("button");
+    expect(tabs[0]).toHaveAttribute("aria-pressed", "true");
     expect(tabs[0]).toHaveTextContent("3");
-    expect(tabs[1]).toHaveAttribute("aria-selected", "false");
+    expect(tabs[1]).toHaveAttribute("aria-pressed", "false");
     tabs[1].click();
     expect(onChange).toHaveBeenCalledWith("paid");
   });

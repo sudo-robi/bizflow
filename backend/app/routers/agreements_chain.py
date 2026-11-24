@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.routers.agreements import (
     _agreement,
-    _escrow_context_placeholder if False else _milestone,
+    _milestone,
     _visible,
     agreement_out,
     approved_evidence_exists,
@@ -113,6 +113,15 @@ def _onchain_agreement_id(agreement) -> str:
     if agreement.onchain_agreement_id is None:
         raise conflict("Agreement is not linked to an on-chain id", "NO_ONCHAIN_ID")
     return str(agreement.onchain_agreement_id)
+
+
+def _approval_ready(db, milestone) -> None:
+    """A pending milestone, or a submitted one with approved off-chain evidence."""
+    if milestone.status == "pending":
+        return
+    if milestone.status == "submitted" and approved_evidence_exists(db, milestone.id):
+        return
+    raise conflict("Milestone is not pending approval", "MILESTONE_STATE")
 
 
 def _escrow_context(db, agreement, contract_id: str | None, source_account: str | None):
@@ -261,8 +270,7 @@ def prepare_approve_milestone(
     if agreement.status != "active" or not agreement.fund_transaction_hash:
         raise conflict("Agreement must be active and funded", "AGREEMENT_STATE")
     milestone = _milestone(db, agreement.id, milestone_id)
-    if milestone.status != "pending":
-        raise conflict("Milestone is not pending approval", "MILESTONE_STATE")
+    _approval_ready(db, milestone)
     _onchain_agreement_id(agreement)
     contract_id, source = _escrow_context(db, agreement, payload.escrow_contract_id, payload.source_account)
     prepared = stellar.build_soroban_approve_xdr(contract_id, source, milestone.sort_order)
@@ -306,8 +314,7 @@ def approve_milestone(
     milestone = _milestone(db, agreement.id, milestone_id)
     if agreement.status != "active" or not agreement.fund_transaction_hash:
         raise conflict("Agreement must be active and funded", "AGREEMENT_STATE")
-    if milestone.status != "pending":
-        raise conflict("Milestone is not pending approval", "MILESTONE_STATE")
+    _approval_ready(db, milestone)
     onchain_id = _onchain_agreement_id(agreement)
     tx_hash = stellar.transaction_hash(payload.signed_xdr)
     payment = _escrow_payment(db, tx_hash, agreement.id, membership.business_id, "escrow_approval")
@@ -512,6 +519,137 @@ def release_milestone(
         db, membership.business_id, "Milestone released",
         f"Milestone {milestone.sort_order + 1} of {agreement.title} was released on-chain.",
         "payment", milestone.id,
+    )
+    db.commit()
+    db.refresh(agreement)
+    return agreement_out(db, agreement)
+
+
+def _refundable(db, agreement) -> None:
+    if agreement.status not in ("active", "disputed"):
+        raise conflict("Agreement is not in a refundable state", "AGREEMENT_STATE")
+    if not agreement.fund_transaction_hash:
+        raise conflict("Agreement must be funded before a refund", "NOT_FUNDED")
+    released = db.scalar(
+        select(AgreementMilestone).where(
+            AgreementMilestone.agreement_id == agreement.id,
+            AgreementMilestone.status == "released",
+        )
+    )
+    if released is not None:
+        raise conflict("An agreement with released milestones cannot be refunded", "MILESTONE_RELEASED")
+    if to_decimal(agreement.funded_amount) <= 0:
+        raise conflict("There is no escrowed balance to refund", "NO_BALANCE")
+
+
+@router.post("/{agreement_id}/prepare-refund")
+def prepare_refund(
+    agreement_id: str,
+    payload: EscrowPrepareIn,
+    membership=Depends(require_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Prepare the real Soroban `refund(caller)` invocation. Nothing is submitted."""
+    agreement = _agreement(db, agreement_id, membership.business_id)
+    _refundable(db, agreement)
+    _onchain_agreement_id(agreement)
+    contract_id, source = _escrow_context(
+        db, agreement, payload.escrow_contract_id, payload.source_account
+    )
+    prepared = stellar.build_soroban_refund_xdr(contract_id, source)
+    payment = PaymentRecord(
+        business_id=membership.business_id,
+        agreement_id=agreement.id,
+        kind="escrow_refund",
+        amount=to_decimal(agreement.funded_amount),
+        asset_code=agreement.asset_code,
+        asset_issuer=agreement.asset_issuer,
+        source_account=source,
+        destination_account=contract_id,
+        memo=agreement.reference,
+        xdr=prepared.xdr,
+        hash=prepared.hash,
+        status="prepared",
+        expires_at=add_seconds(settings.prepare_expires_minutes * 60),
+        prepared_by=membership.user_id,
+    )
+    db.add(payment)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise conflict("This refund transaction hash is already used", "DUPLICATE_HASH") from exc
+    audit(
+        db, membership.business_id, membership.user_id, "agreement.refund_prepared",
+        "agreement", agreement.id, {"hash": prepared.hash},
+    )
+    db.commit()
+    return {
+        "xdr": prepared.xdr,
+        "hash": prepared.hash,
+        "payment_id": payment.id,
+        "expires_at": payment.expires_at,
+    }
+
+
+@router.post("/{agreement_id}/refund", response_model=AgreementOut)
+def refund_escrow(
+    agreement_id: str,
+    payload: EscrowSubmitIn,
+    membership=Depends(require_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Submit a signed refund and require the verified on-chain `refunded` event."""
+    agreement = _agreement(db, agreement_id, membership.business_id)
+    _refundable(db, agreement)
+    onchain_id = _onchain_agreement_id(agreement)
+    tx_hash = stellar.transaction_hash(payload.signed_xdr)
+    payment = _escrow_payment(db, tx_hash, agreement.id, membership.business_id, "escrow_refund")
+    if payment.status == "confirmed":
+        raise conflict("Agreement was already refunded", "ALREADY_REFUNDED")
+    if payment.status != "prepared":
+        raise conflict("Prepared refund is no longer valid", "PAYMENT_STATE")
+    if payment.expires_at and naive(payment.expires_at) < utcnow():
+        payment.status = "failed"
+        payment.failure_reason = "Prepared refund expired"
+        db.commit()
+        raise conflict("Prepared transaction expired; prepare a new one", "EXPIRED_XDR")
+    contract_id = agreement.escrow_contract_id or settings.stellar_escrow_contract_id
+    if payment.destination_account != contract_id:
+        raise bad_request("Prepared refund targets a different contract", "CONTRACT_MISMATCH")
+    if to_decimal(payment.amount) != to_decimal(agreement.funded_amount):
+        raise bad_request("Prepared refund amount does not match the escrow balance", "AMOUNT_MISMATCH")
+
+    submitted = stellar.submit_soroban(payload.signed_xdr, contract_id, "refund")
+    if not (submitted.confirmed and submitted.successful):
+        payment.status = "failed"
+        payment.failure_reason = submitted.reason
+        audit(db, membership.business_id, membership.user_id, "agreement.refund_failed", "agreement", agreement.id, {"hash": tx_hash})
+        db.commit()
+        raise conflict(submitted.reason or "Refund was not confirmed on-chain", "UNCONFIRMED_TX")
+
+    verified = verification.verify_soroban_refund(
+        tx_hash, contract_id, onchain_id,
+        payer=payment.source_account, amount=payment.amount,
+    )
+    if not verified.settled:
+        payment.status = "failed"
+        payment.failure_reason = verified.reason
+        db.commit()
+        raise conflict(verified.reason or "Refund event could not be verified", "UNVERIFIED_EVENT")
+
+    verification.record_transaction(db, membership.business_id, verified, payment.id)
+    payment.status = "confirmed"
+    payment.confirmed_at = utcnow()
+    agreement.status = "refunded"
+    audit(
+        db, membership.business_id, membership.user_id, "agreement.refunded", "agreement",
+        agreement.id, {"hash": tx_hash, "amount": money_str(payment.amount)},
+    )
+    notify_business(
+        db, membership.business_id, "Escrow refunded",
+        f"Escrow refund of {money_str(payment.amount)} {payment.asset_code} was verified on-chain.",
+        "agreement", agreement.id,
     )
     db.commit()
     db.refresh(agreement)

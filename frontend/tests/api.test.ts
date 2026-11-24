@@ -20,7 +20,7 @@ function fakeResponse(options: {
 } = {}) {
   const status = options.status ?? 200;
   const hasJson = options.json !== undefined;
-  const resolvedHeaders = {
+  const resolvedHeaders: Record<string, string> = {
     ...(hasJson ? { "content-type": "application/json" } : {}),
     ...(options.headers ?? {}),
   };

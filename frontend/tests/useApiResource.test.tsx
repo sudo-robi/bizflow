@@ -90,7 +90,7 @@ describe("useApiResource", () => {
     const { result } = renderHook(() => useApiResource(fetcher));
     await waitFor(() => expect(result.current.data).toBe(0));
 
-    act(() => result.current.setData((current) => (current ?? 0) + 5));
+    act(() => result.current.setData((current: number | null) => (current ?? 0) + 5));
     expect(result.current.data).toBe(5);
   });
 

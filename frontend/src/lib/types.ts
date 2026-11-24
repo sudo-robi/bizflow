@@ -91,7 +91,7 @@ export interface Milestone {
 }
 
 /** conditions and approval_requirements are JSON objects on the backend. */
-export type AgreementMetadata = Record<string, unknown>;
+export type AgreementMetadata = Record<string, unknown> | string;
 
 export interface Agreement {
   id: string;
@@ -171,10 +171,10 @@ export interface Member {
 
 /** A point used by the chart components; built from the backend's monthly_volume map. */
 export interface ActivityPoint {
-  date: string;
-  label: string;
-  amount: string;
-  count?: number;
+  date?: string;
+  label?: string;
+  amount?: string;
+  count?: number | string;
 }
 
 export interface DashboardReport {

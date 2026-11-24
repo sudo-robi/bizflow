@@ -78,7 +78,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return (
             <div
               key={toast.id}
-              role="status"
+              role={toast.kind === "error" ? "alert" : "status"}
               className={`pointer-events-auto flex animate-toast-in items-start gap-3 rounded-xl border p-4 shadow-card ${styleFor[toast.kind]}`}
             >
               <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />

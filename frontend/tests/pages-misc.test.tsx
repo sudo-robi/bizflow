@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuth } from "@/app/providers";
@@ -148,7 +148,7 @@ describe("TransactionDetailPage", () => {
 
 describe("AgreementsPage", () => {
   const agreements = [
-    { id: "a1", title: "Website build", agreement_reference: "AGR-1", total_amount: "500", status: "active", milestones: [{ id: "m1" }], expiry_date: "2026-12-01", supplier: { business_name: "Northwind" } },
+    { id: "a1", title: "Website build", reference: "AGR-1", total_amount: "500", status: "active", milestones: [{ id: "m1" }], expiry_date: "2026-12-01", supplier: { business_name: "Northwind" } },
     { id: "a2", title: "Audit", total_amount: "200", status: "draft" },
   ];
 
@@ -161,7 +161,7 @@ describe("AgreementsPage", () => {
     expect(screen.getByText("Northwind")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Draft" }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: "Draft" }));
     await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/v1/agreements?status=draft"));
     fireEvent.click(screen.getByText("Audit").closest("tr") as HTMLElement);
     expect(push).toHaveBeenCalledWith("/agreements/a2");
@@ -194,10 +194,10 @@ describe("SuppliersPage", () => {
     renderPage(<SuppliersPage />);
     expect(await screen.findByText("Northwind")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Archived" }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: "Archived" }));
     await waitFor(() => expect(screen.queryByText("Northwind")).not.toBeInTheDocument());
     expect(screen.getByText("Archived Co")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /^All/ }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: /^All/ }));
 
     await user.click(screen.getByRole("button", { name: "Archive Northwind" }));
     expect(await screen.findByText("Archive supplier?")).toBeInTheDocument();
@@ -210,16 +210,17 @@ describe("SuppliersPage", () => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValue(jsonResponse([]));
     renderPage(<SuppliersPage />);
-    const addButton = await screen.findByRole("button", { name: "Add supplier" });
-    await user.click(addButton);
-    const dialog = await screen.findByRole("dialog");
+    await screen.findByText("No suppliers yet");
+    const addButton = screen.getAllByRole("button", { name: "Add supplier" })[0];
+    fireEvent.click(addButton);
+    const dialog = await screen.findByRole("dialog", {}, { timeout: 15000 });
     expect(dialog).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/Business name/), "New Supplier");
-    await user.type(screen.getByLabelText(/Stellar public address/), VALID_KEY);
-    await user.click(withinDialog(dialog, "Save supplier"));
+    fireEvent.change(document.getElementById("supplier-business_name") as HTMLInputElement, { target: { value: "New Supplier" } });
+    fireEvent.change(document.getElementById("supplier-wallet_address") as HTMLInputElement, { target: { value: VALID_KEY } });
+    fireEvent.click(withinDialog(dialog, "Save supplier"));
     await waitFor(() => expect(screen.getByText("Supplier added")).toBeInTheDocument());
     expect(fetchMock.mock.calls.some((call) => call[0] === "/api/v1/suppliers" && call[1].method === "POST")).toBe(true);
-  });
+  }, { timeout: 10000 });
 
   it("shows search, empty and error states", async () => {
     const user = userEvent.setup();

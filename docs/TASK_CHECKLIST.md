@@ -74,10 +74,10 @@ This checklist is updated as work is executed. A feature is **VERIFIED** only wh
 
 | # | Task | Status | Evidence |
 |---|---|---|---|
-| 9.1 | Backend coverage ≥90% | IN PROGRESS | Baseline 83%; dedicated agent adding tests |
-| 9.2 | Frontend coverage maximized | IN PROGRESS | Baseline 3.14%; dedicated agent adding tests |
+| 9.1 | Backend coverage ≥90% | VERIFIED COMPLETE | `pytest`: 244 passed; coverage 95% (3208 stmts, 174 missed) |
+| 9.2 | Frontend coverage maximized | VERIFIED COMPLETE | `vitest`: 260 passed in 19 files; 86.68% lines; src/lib and src/components 100% |
 | 9.3 | Contract coverage of all functions | VERIFIED | `cargo test`: 47 passed; `cargo llvm-cov --ignore-filename-regex=test.rs`: lib.rs lines 286/291 = **98.28%**, regions 396/402 = **98.51%**, functions 19/24 = 79.17% (5 remaining are `#[inline(always)]` testutils-only `TryFrom` conversions with counters folded into callers; 1 unreachable region is a provably-safe `checked_sub` arm) |
-| 9.4 | E2E browser verification of critical flows | PENDING | Playwright to run after app is live |
+| 9.4 | E2E browser verification of critical flows | PARTIALLY IMPLEMENTED | Playwright MCP: register → dashboard PASS against live local stack; wallet-signing E2E blocked by unavailable Freighter session |
 
 ## 10. Deployment & documentation
 
@@ -94,13 +94,14 @@ This checklist is updated as work is executed. A feature is **VERIFIED** only wh
 | F-01 | CRITICAL | `/agreements/{id}/fund` can mark an agreement funded from an unrelated Horizon payment (destination/issuer/memo not bound) | `routers/agreements_chain.py:44-82` | VERIFIED FIXED: now requires active + on-chain id + bound amount/asset/issuer/destination/memo; regression tests in progress |
 | F-02 | CRITICAL | Soroban events returned for every agreement; no agreement-id topic filter (cross-agreement data leakage presented as real) | `routers/agreements_chain.py:446-493` | VERIFIED FIXED: on-chain id topic filter applied to every Soroban event |
 | F-03 | HIGH | `approve_milestone`/`release_milestone` do not check prepared-record status/expiry | `routers/agreements_chain.py:265-283,385-423` | VERIFIED FIXED: state/kind/expiry/contract re-validated at submit |
-| F-04 | HIGH | Settlement relies only on event matching; no independent on-chain agreement state read | `services/verification.py:157-251`, `contracts/escrow/src/lib.rs:372-387` | PENDING (event verification strengthened with mandatory on-chain id; state readback still open) |
+| F-04 | HIGH | Settlement relies only on event matching; no independent on-chain agreement state read | `services/verification.py:157-251`, `contracts/escrow/src/lib.rs:372-387` | VERIFIED FIXED: `services/reconciliation.py` reads real `get_balance` via simulation; endpoint + 4 tests; live RPC readback at ledger 5907394 |
 | F-05 | MEDIUM | `submit_soroban` does not validate contract/function inside the signed XDR | `services/stellar.py:281-317` | VERIFIED FIXED: contract id + function decoded from signed XDR and checked before send |
 | F-08 | CRITICAL | Client-supplied escrow contract could replace the agreement's real contract | `routers/agreements_chain.py:87` | VERIFIED FIXED: client id accepted only if it matches server-resolved contract |
 | F-09 | HIGH | Insecure defaults (JWT secret, insecure cookie, default DB URL) | `config.py:22-29` | VERIFIED FIXED: production requires strong secret + real DB URL and forces secure cookie |
 | F-10 | HIGH | Agreement completed with approved-but-unreleased milestones | `routers/agreements_chain.py:424-431` | VERIFIED FIXED: completion requires every milestone released |
 | F-06 | MEDIUM | Invoice creation emits audit entry but no notification | Live HTTP: audit total=2, notifications=0 after invoice create | PENDING |
 | F-07 | HIGH | Fresh `alembic upgrade head` failed on duplicate `updated_at` column | `alembic/versions/0003_blockchain_updated_at.py` | VERIFIED FIXED: migration made idempotent; fresh upgrade + downgrade/base + upgrade/head all exit 0 |
+| F-11 | CRITICAL | `invoked_contract_function()` used non-existent SDK accessors, so every real signed Soroban invocation failed validation | `services/stellar.py` | VERIFIED FIXED: uses `envelope.transaction` + `operation.host_function`; decoded a real built XDR → `(contract_id, "get_balance")` |
 
 ## 12. Stellar Testnet evidence (read-only)
 
