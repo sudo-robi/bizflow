@@ -215,6 +215,10 @@ class SupplierInviteIn(APIModel):
     email: EmailStr
 
 
+class SupplierInviteDecisionIn(APIModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class SupplierInvitationOut(APIModel):
     id: str
     business_id: str

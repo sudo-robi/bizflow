@@ -45,8 +45,18 @@ cargo test
 stellar contract build
 ```
 
-**Executed result (this build):**
-- `cargo test` — **24 passed; 0 failed**.
+**Executed result (final verification, 2026-11-25):**
+- `cargo test` — **47 passed; 0 failed**; `cargo llvm-cov` lib.rs lines **98.28%**.
+
+**Backend:** `USE_SQLITE=true .venv/bin/python -m pytest -o addopts='' -q` — **250 passed, 1 warning**; `--cov=app` — **95%** (3208 statements, 174 missed at last full run).
+
+**Frontend:** `npx vitest run` — **260 passed in 19 files**; `npm run typecheck` and `npm run build` PASS; line coverage **86.68%**.
+
+**Migrations:** fresh SQLite `alembic upgrade head` → `0005_feature_completeness`; tables `supplier_invitations`, `invoice_attachments`, `milestone_evidence` present.
+
+**Browser E2E:** Playwright MCP registration → dashboard PASS against the live local stack.
+
+Exact evidence: `BIZFLOW_FINAL_TEST_RESULTS.md`, `BIZFLOW_SECOND_PASS_TEST_RESULTS.md`.
 - `stellar contract build` — success; optimized WASM 11,987 bytes, hash
   `65db0f966e0f18ac59272ce6f664b66a62c1780b74b612f1e69f02081743a7cd`.
 - `cargo build --target wasm32-unknown-unknown --release` intentionally fails by SDK

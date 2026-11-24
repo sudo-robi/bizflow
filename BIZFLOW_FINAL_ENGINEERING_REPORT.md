@@ -8,7 +8,7 @@ Date: 2026-11-25. Statuses: **VERIFIED** (executed evidence), **PARTIALLY VERIFI
 |---|---|---|
 | Registration, JWT session cookie, bcrypt, RBAC, revocation, tenant isolation | VERIFIED | Live HTTP: register 201, cookie set, `auth/me` 200, logout 200, revoked `auth/me` 401; two-tenant cross-access 404 |
 | Supplier CRUD, wallet validation, invitations/acceptance, history | VERIFIED | Backend tests + migration `0005`; `tests/test_feature_completeness.py` |
-| Invoice create/edit/submit/approve/reject/cancel/PDF/attachments, partial payments, derived status | VERIFIED | Backend suite, PDF 200 over live HTTP, frontend edit modals, 244 backend tests |
+| Invoice create/edit/submit/approve/reject/cancel/PDF/attachments, partial payments, derived status | VERIFIED | Backend suite, PDF 200 over live HTTP, frontend edit modals, 250 backend tests |
 | Agreements: create/submit/accept/reject/cancel/dispute, expiry fields, milestones, evidence, refund | VERIFIED (business logic) | Backend tests; on-chain escrow flows verified with event checks; expiry enforcement in state transitions |
 | Soroban escrow: fund/approve/release/refund with XDR contract+function validation and event verification | VERIFIED (verification logic) | 47 contract tests; `test_coverage_agreements_*`; real Testnet events |
 | Independent on-chain state readback and reconciliation endpoint | VERIFIED (with mocked RPC in unit tests + real manual RPC read) | `POST /agreements/{id}/reconcile`, `tests/test_reconciliation.py`, ledger 5907394 `get_balance` result |

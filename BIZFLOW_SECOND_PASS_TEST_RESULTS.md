@@ -4,7 +4,7 @@ Full evidence: `BIZFLOW_FINAL_TEST_RESULTS.md`.
 
 | Suite | Command | Result |
 |---|---|---|
-| Backend | `USE_SQLITE=true .venv/bin/python -m pytest -o addopts='' -q --disable-warnings` | 244 passed, 1 warning |
+| Backend | `USE_SQLITE=true .venv/bin/python -m pytest -o addopts='' -q --disable-warnings` | 250 passed, 1 warning |
 | Backend coverage | `pytest --cov=app --cov-report=term-missing` | 95% (3208 statements, 174 missed) |
 | Frontend | `npx vitest run` | 260 passed in 19 files; coverage 86.68% lines |
 | Frontend typecheck/build | `npm run typecheck`, `npm run build` | PASS; 20/20 static pages |

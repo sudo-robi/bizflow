@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import func, select
@@ -289,6 +289,73 @@ def reconciliation(membership=Depends(get_business_membership), db: Session = De
         "duplicate_transaction_hashes": duplicate_hashes,
         "confirmed_payments_without_hash": inconsistent,
     }
+
+
+@router.get("/analytics.pdf")
+def analytics_pdf(
+    membership=Depends(get_business_membership), db: Session = Depends(get_db)
+):
+    """PDF export of the same DB-derived analytics used by the dashboard."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    data = analytics(membership=membership, db=db)
+    styles = getSampleStyleSheet()
+    buffer = BytesIO()
+    document = SimpleDocTemplate(buffer, pagesize=A4)
+    story = [Paragraph("BizFlow financial analytics", styles["Title"])]
+    story.append(
+        Paragraph(
+            "All figures are derived from stored, verified records. Pending and failed "
+            "payments are excluded from completed totals.",
+            styles["Normal"],
+        )
+    )
+    story.append(Spacer(1, 12))
+
+    def _table(title: str, rows: list[list[str]]) -> None:
+        story.append(Paragraph(title, styles["Heading2"]))
+        table = Table(rows, colWidths=[260, 220])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A5F")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(table)
+        story.append(Spacer(1, 12))
+
+    _table(
+        "Summary",
+        [
+            ["Metric", "Value"],
+            ["Outstanding liabilities", data["outstanding_liabilities"]],
+            ["Completed payments", str(data["completed_payments"])],
+            ["Failed payments", str(data["failed_payments"])],
+        ],
+    )
+    _table(
+        "Invoice aging",
+        [["Bucket", "Count", "Amount"]]
+        + [[bucket, values["count"], values["amount"]] for bucket, values in data["invoice_aging"].items()],
+    )
+    _table(
+        "Supplier breakdown",
+        [["Supplier", "Confirmed total"]]
+        + [[entry["supplier"], entry["total"]] for entry in data["supplier_breakdown"]],
+    )
+    document.build(story)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="bizflow-analytics.pdf"'},
+    )
 
 
 @router.get("/payments.csv")

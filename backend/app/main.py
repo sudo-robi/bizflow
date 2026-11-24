@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -61,8 +62,19 @@ app.add_middleware(
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Authorization", "X-Business-ID", "Content-Type"],
+    allow_headers=["Authorization", "X-Business-ID", "Content-Type", "X-Request-ID"],
 )
+
+
+@app.middleware("http")
+async def request_correlation(request: Request, call_next):
+    """Attach a stable request id to logs and responses for correlation."""
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit_per_minute])
 app.state.limiter = limiter

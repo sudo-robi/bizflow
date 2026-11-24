@@ -102,6 +102,9 @@ This checklist is updated as work is executed. A feature is **VERIFIED** only wh
 | F-06 | MEDIUM | Invoice creation emits audit entry but no notification | Live HTTP: audit total=2, notifications=0 after invoice create | PENDING |
 | F-07 | HIGH | Fresh `alembic upgrade head` failed on duplicate `updated_at` column | `alembic/versions/0003_blockchain_updated_at.py` | VERIFIED FIXED: migration made idempotent; fresh upgrade + downgrade/base + upgrade/head all exit 0 |
 | F-11 | CRITICAL | `invoked_contract_function()` used non-existent SDK accessors, so every real signed Soroban invocation failed validation | `services/stellar.py` | VERIFIED FIXED: uses `envelope.transaction` + `operation.host_function`; decoded a real built XDR → `(contract_id, "get_balance")` |
+| F-12 | HIGH | One escrow contract could be bound to two funded agreements | `routers/agreements_chain.py` | VERIFIED FIXED: prepare-fund rejects `CONTRACT_IN_USE`; cross-tenant prepare → 404; `tests/test_second_pass.py` |
+| F-13 | MEDIUM | Invitation lifecycle lacked reject/revoke/expiry sweep | `routers/suppliers.py`, `schemas.py` | VERIFIED COMPLETE: reject (invited email), revoke (inviter), persisted expiry; `tests/test_second_pass.py` |
+| F-14 | MEDIUM | No request correlation IDs and no PDF analytics export | `main.py`, `routers/reports.py` | VERIFIED COMPLETE: `X-Request-ID` echoed; `/reports/analytics.pdf` returns real PDF; `tests/test_second_pass.py` |
 
 ## 12. Stellar Testnet evidence (read-only)
 

@@ -179,6 +179,17 @@ def prepare_escrow_fund(
     if amount > to_decimal(agreement.total_amount):
         raise bad_request("Funded amount exceeds agreement total", "INVALID_AMOUNT")
     contract_id, source = _escrow_context(db, agreement, payload.escrow_contract_id, payload.source_account)
+    # One contract instance holds exactly one agreement. Never bind the same
+    # instance to a second funded agreement.
+    other = db.scalar(
+        select(PaymentAgreement).where(
+            PaymentAgreement.escrow_contract_id == contract_id,
+            PaymentAgreement.fund_transaction_hash.isnot(None),
+            PaymentAgreement.id != agreement.id,
+        )
+    )
+    if other is not None:
+        raise conflict("This escrow contract is already bound to another funded agreement", "CONTRACT_IN_USE")
     if payload.onchain_agreement_id is not None:
         agreement.onchain_agreement_id = payload.onchain_agreement_id
     _onchain_agreement_id(agreement)
