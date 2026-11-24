@@ -17,6 +17,7 @@ from app.schemas import (
     PaymentOut,
     SupplierCreate,
     SupplierInvitationAcceptOut,
+    SupplierInviteDecisionIn,
     SupplierInvitationOut,
     SupplierInviteIn,
     SupplierOut,
@@ -147,11 +148,31 @@ def invite_supplier(
     return _invitation_out(invite, with_token=True)
 
 
+def _sweep_expired_invites(db: Session, business_id: str) -> None:
+    """Persist expiry for invitations whose deadline has passed."""
+    expired = db.scalars(
+        select(SupplierInvitation).where(
+            SupplierInvitation.business_id == business_id,
+            SupplierInvitation.status == "pending",
+            SupplierInvitation.expires_at < utcnow(),
+        )
+    ).all()
+    for invite in expired:
+        invite.status = "expired"
+        audit(
+            db, business_id, None, "supplier.invitation_expired",
+            "supplier", invite.supplier_id, {"invitation_id": invite.id},
+        )
+    if expired:
+        db.commit()
+
+
 @router.get("/invitations", response_model=list[SupplierInvitationOut])
 def list_supplier_invitations(
     membership=Depends(require_roles("finance_manager")),
     db: Session = Depends(get_db),
 ):
+    _sweep_expired_invites(db, membership.business_id)
     invites = db.scalars(
         select(SupplierInvitation)
         .where(SupplierInvitation.business_id == membership.business_id)
@@ -224,6 +245,61 @@ def accept_supplier_invitation(
         role=invite.role,
         accepted_at=invite.accepted_at,
     )
+
+
+@router.post("/invitations/{token}/reject", response_model=SupplierInvitationOut)
+def reject_supplier_invitation(
+    token: str,
+    payload: SupplierInviteDecisionIn | None = None,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The invited account can explicitly decline a supplier invitation."""
+    invite = db.scalar(select(SupplierInvitation).where(SupplierInvitation.token == token))
+    if invite is None:
+        raise not_found("Supplier invitation not found")
+    if user.email.lower() != invite.email.lower():
+        raise forbidden("This invitation was sent to a different email address")
+    if invite.status != "pending":
+        raise conflict("This invitation is no longer pending", "INVITE_STATE")
+    if naive(invite.expires_at) < utcnow():
+        invite.status = "expired"
+        db.commit()
+        raise conflict("This invitation has expired", "INVITE_EXPIRED")
+    reason = payload.reason if payload else None
+    invite.status = "rejected"
+    audit(
+        db, invite.business_id, user.id, "supplier.invitation_rejected",
+        "supplier", invite.supplier_id, {"invitation_id": invite.id, "reason": reason},
+    )
+    db.commit()
+    db.refresh(invite)
+    return _invitation_out(invite)
+
+
+@router.post("/{supplier_id}/invitations/{invitation_id}/revoke", response_model=SupplierInvitationOut)
+def revoke_supplier_invitation(
+    supplier_id: str,
+    invitation_id: str,
+    payload: SupplierInviteDecisionIn | None = None,
+    membership=Depends(require_roles("finance_manager")),
+    db: Session = Depends(get_db),
+):
+    """The inviter can revoke a pending invitation for their own supplier."""
+    invite = db.get(SupplierInvitation, invitation_id)
+    if invite is None or invite.business_id != membership.business_id or invite.supplier_id != supplier_id:
+        raise not_found("Supplier invitation not found")
+    if invite.status != "pending":
+        raise conflict("This invitation is no longer pending", "INVITE_STATE")
+    reason = payload.reason if payload else None
+    invite.status = "revoked"
+    audit(
+        db, membership.business_id, membership.user_id, "supplier.invitation_revoked",
+        "supplier", supplier_id, {"invitation_id": invite.id, "reason": reason},
+    )
+    db.commit()
+    db.refresh(invite)
+    return _invitation_out(invite)
 
 
 @router.get("", response_model=Page[SupplierOut])

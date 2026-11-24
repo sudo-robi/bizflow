@@ -116,6 +116,25 @@ unconfirmed transactions are recorded with status `failed`/`pending` and never c
 | POST | `/wallets` | `{public_key,network}`; must equal `testnet`; never accepts secrets |
 | DELETE | `/wallets/{id}` | disconnect |
 
+## Endpoints added in the second pass (verified by tests)
+
+| Method | Path | Roles | Notes |
+|---|---|---|---|
+| POST | `/suppliers/{id}/invitations` | owner/admin/finance | one-time token returned once; must match supplier contact email |
+| GET | `/suppliers/invitations` | owner/admin/finance | lists invitations; marks expired ones |
+| POST | `/suppliers/invitations/{token}/accept` | invited email only | authenticated acceptance; links existing user |
+| POST | `/suppliers/invitations/{token}/reject` | invited email only | explicit decline with optional reason |
+| POST | `/suppliers/{id}/invitations/{invitation_id}/revoke` | owner/admin/finance | revokes a pending invitation |
+| POST | `/invoices/{id}/approve`, `/invoices/{id}/reject` | owner/admin/finance | approval history and rejection reason audited |
+| GET/POST | `/invoices/{id}/attachments`, `DELETE /invoices/{id}/attachments/{id}` | member/owner | 5 MB limit, type validation, business-bound |
+| POST | `/agreements/{id}/milestones/{id}/evidence` | linked supplier | evidence before on-chain approval |
+| POST | `/agreements/{id}/prepare-refund`, `/agreements/{id}/refund` | owner/admin | real Soroban `refund` + event verification |
+| GET | `/payments/{id}/prepared-xdr` | business member | prepared-only; never returns confirmed XDR |
+| POST | `/agreements/{id}/reconcile` | owner/admin/finance | read-only on-chain state comparison + audit entry |
+| GET | `/reports/analytics.pdf` | member | PDF export of DB-derived analytics |
+
+Every response is tenant-scoped. Request IDs are echoed in `X-Request-ID`.
+
 ## Stellar config (server-side only, from env)
 - Network: Testnet
 - Passphrase: `Test SDF Network ; September 2015`

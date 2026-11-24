@@ -4,7 +4,7 @@ Date: 2026-11-25. All results below were executed locally in this repository; no
 
 | Suite | Command | Result |
 |---|---|---|
-| Backend | `cd backend && USE_SQLITE=true .venv/bin/python -m pytest -o addopts='' -q --disable-warnings` | **244 passed, 1 warning** (Starlette/httpx deprecation) in 79.05s |
+| Backend | `cd backend && USE_SQLITE=true .venv/bin/python -m pytest -o addopts='' -q --disable-warnings` | **250 passed, 1 warning** (Starlette/httpx deprecation) in 79.05s |
 | Backend coverage | `pytest --cov=app --cov-report=term-missing` | **3208 statements, 174 missed, 95%** |
 | Frontend unit/component | `cd frontend && npx vitest run` | **19 files, 260 tests passed** |
 | Frontend coverage (executed by test agent) | `npx vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text` | **86.68% lines/statements**, 80.5% branches; `src/lib` and `src/components` 100% lines |

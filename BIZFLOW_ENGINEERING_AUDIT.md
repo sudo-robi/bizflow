@@ -143,3 +143,15 @@ suites, a live FastAPI + Next.js stack, and real Stellar Testnet transactions.
 7. Documentation set matching actual implementation.
 
 Features classified above will be re-evaluated at the end of the cycle in the final report.
+
+---
+
+## Status reconciliation (2026-11-25)
+
+The table above describes the **pre-correction** state and is preserved for history. It is
+superseded by `BIZFLOW_FINAL_ENGINEERING_REPORT.md`, `BIZFLOW_FINAL_TEST_RESULTS.md`,
+`BIZFLOW_SECOND_PASS_AUDIT.md` and `docs/TASK_CHECKLIST.md`. Items marked Missing/Broken there
+have been implemented or repaired where independently executable; the remaining items are
+explicitly marked PARTIALLY IMPLEMENTED or BLOCKED BY EXTERNAL DEPENDENCY in those reports (notably
+per-agreement contract deployment, live public hosting, GHCR packages, and funded-wallet E2E).
+
