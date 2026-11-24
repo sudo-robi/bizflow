@@ -1,0 +1,26 @@
+[package]
+name = "bizflow-escrow"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = "30.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "30.0.0", features = ["testutils"] }
+
+# Standalone crate: do not look for a workspace above this directory.
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true

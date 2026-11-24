@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Builds
+.next/
+out/
+dist/
+build/
+target/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+
+# Test artifacts
+coverage/
+htmlcov/
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
