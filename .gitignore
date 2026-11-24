@@ -31,6 +31,7 @@ postgres_data/
 
 # Test artifacts
 coverage/
+.coverage
 htmlcov/
 playwright-report/
 test-results/

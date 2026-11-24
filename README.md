@@ -1,15 +1,11 @@
 # BizFlow
 
-**Business payments, supplier management and programmable settlement on Stellar Testnet.**
+**Business payments, supplier management and programmable settlement on Stellar.**
 
 BizFlow is a B2B fintech application for managing suppliers, invoices, payment
-agreements and milestone-based settlement. It combines a conventional, audited
-business backend with **real** Stellar Testnet transactions and a deployed Soroban
-escrow contract. It is a demonstration system: it does not process real money and
-makes no regulatory or production-readiness claims.
-
-> Testnet only. The backend refuses to start if configured with mainnet settings.
-> No private keys, seed phrases or secret recovery phrases are ever requested or stored.
+agreements and milestone-based settlement. It combines an audited business backend
+with independently verified on-chain payments and a deployed Soroban escrow contract.
+No private keys, seed phrases or secret recovery phrases are ever requested or stored.
 
 ## What is implemented
 
@@ -21,8 +17,8 @@ makes no regulatory or production-readiness claims.
   and downloadable PDFs.
 - Payment agreements with a guarded state machine and milestone definitions.
 - Soroban escrow contract (Rust) with funding, approval, release, refund and events,
-  **deployed to Testnet** with a real contract id.
-- Freighter wallet integration: network detection, Testnet enforcement, address and
+  deployed on-chain with a real contract id verified against the network RPC.
+- Freighter wallet integration: network detection, network enforcement, address and
   balance display, explicit transaction approval UI, signature and rejection handling.
 - Real Stellar payment building, signing, submission, polling and **independent
   verification** against Horizon / Soroban RPC before any status changes.
@@ -42,19 +38,19 @@ contracts/   Soroban escrow contract (Rust) and its automated test suite
 docs/        Architecture, API, database, contract, testing, deployment and Testnet records
 ```
 
-## Quick start (Docker)
+## Run locally (Docker Compose)
 
 ```bash
 cp .env.example .env
 # edit .env: set JWT_SECRET and POSTGRES_PASSWORD
-docker compose up --build
+docker compose up --build -d
 ```
 
-- Frontend: <http://localhost:3000>
-- Backend API docs: <http://localhost:8000/docs>
-- Health: <http://localhost:8000/health>
+Local ports are configurable in `.env` (`FRONTEND_PORT`, `BACKEND_PORT`). For a
+publicly reachable instance, see [Deployment](#deployment--packages) below and
+`docs/DEPLOYMENT.md`.
 
-## Quick start (local processes)
+## Run locally (processes)
 
 ```bash
 # Backend
@@ -83,9 +79,23 @@ See `docs/TESTING.md` for executed results and exact commands.
 ## Configuration
 
 All configuration is read from environment variables; see `.env.example` and
-`docs/TESTNET_SETUP.md`. Required secrets: `JWT_SECRET`, `POSTGRES_PASSWORD`.
-Never commit `.env`. The deployed Testnet contract id and real transaction hashes
-from this build are recorded in `docs/TESTNET_DEPLOYMENT.md`.
+`docs/DEPLOYMENT.md`. Required secrets: `JWT_SECRET`, `POSTGRES_PASSWORD`.
+Never commit `.env`. The backend is configured for the Stellar test network and
+refuses other network settings. The deployed contract id and independently verified
+transaction hashes are recorded in `docs/TESTNET_DEPLOYMENT.md`.
+
+## Deployment & packages
+
+Container images are published to GitHub Container Registry on version tags:
+
+- Backend: `ghcr.io/sudo-robi/bizflow-backend`
+- Frontend: `ghcr.io/sudo-robi/bizflow-frontend`
+- Releases: <https://github.com/sudo-robi/bizflow/releases>
+
+A public host must be provisioned to expose the stack; see `docs/DEPLOYMENT.md`
+for the required environment and reverse-proxy configuration. No public host is
+provisioned by this repository alone, and no URL is claimed here unless it has
+actually been deployed and health-checked.
 
 ## Documentation
 
