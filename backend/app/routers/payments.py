@@ -17,7 +17,14 @@ from app.models import (
     Supplier,
     User,
 )
-from app.schemas import Page, PaymentOut, PaymentPrepareIn, PaymentPreparedOut, PaymentSubmitIn
+from app.schemas import (
+    Page,
+    PaymentOut,
+    PaymentPrepareIn,
+    PaymentPreparedOut,
+    PaymentSubmitIn,
+    PreparedXdrOut,
+)
 from app.security import (
     get_business_membership,
     get_current_user,
@@ -233,6 +240,32 @@ def submit_payment(
     db.commit()
     db.refresh(payment)
     return PaymentOut.model_validate(payment)
+
+
+@router.get("/{payment_id}/prepared-xdr", response_model=PreparedXdrOut)
+def get_prepared_xdr(
+    payment_id: str,
+    user: User = Depends(get_current_user),
+    membership=Depends(get_business_membership),
+    db: Session = Depends(get_db),
+):
+    """Return the stored XDR for a *prepared* payment in the caller's business.
+
+    Confirmed/failed XDRs are never reused as new transaction material.
+    """
+    payment = _payment(db, payment_id, membership.business_id)
+    _visible(db, payment, membership, user)
+    if payment.status != "prepared":
+        raise conflict("Only prepared payments expose a signing XDR", "PAYMENT_NOT_PREPARED")
+    if payment.expires_at and naive(payment.expires_at) < utcnow():
+        raise conflict("Prepared transaction has expired; prepare a new payment", "EXPIRED_XDR")
+    return PreparedXdrOut(
+        payment_id=payment.id,
+        xdr=payment.xdr,
+        hash=payment.hash,
+        status=payment.status,
+        expires_at=payment.expires_at,
+    )
 
 
 @router.get("/{payment_id}", response_model=PaymentOut)

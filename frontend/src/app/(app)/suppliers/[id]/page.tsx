@@ -86,11 +86,11 @@ export default function SupplierDetailPage() {
     { key: "amount", header: "Amount", render: (row) => <span className="font-medium text-navy-900">{formatMoney(row.amount, { decimals: 4 })} {row.asset_code || "XLM"}</span> },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     {
-      key: "transaction_hash",
+      key: "hash",
       header: "Transaction",
-      render: (row) => row.transaction_hash ? (
-        <Link href={`/transactions/${encodeURIComponent(row.transaction_hash)}`} className="font-mono text-xs text-accent-600 hover:underline">
-          {truncateAddress(row.transaction_hash, 8, 4)}
+      render: (row) => row.hash ? (
+        <Link href={`/transactions/${encodeURIComponent(row.hash)}`} className="font-mono text-xs text-accent-600 hover:underline">
+          {truncateAddress(row.hash, 8, 4)}
         </Link>
       ) : <span className="text-slate-400">—</span>,
     },

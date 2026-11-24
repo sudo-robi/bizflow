@@ -34,6 +34,7 @@ export function ConfirmModal({
       onClose={onClose}
       title={title}
       size="sm"
+      describedBy={descriptionId}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button

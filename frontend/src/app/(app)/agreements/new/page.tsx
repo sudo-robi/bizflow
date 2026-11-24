@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/components/ToastProvider";
 import { api, getErrorMessage } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import { isValidAmount, isValidAssetCode } from "@/lib/validators";
+import { isValidAmount, isValidAssetCode, parseJsonObject } from "@/lib/validators";
 import { useApiResource } from "@/lib/useApiResource";
 import type { Supplier } from "@/lib/types";
 
@@ -42,6 +42,25 @@ const schema = z.object({
       path: ["total_amount"],
       message: `Milestone amounts total ${formatMoney(sum, { decimals: 4 })}, but the agreement total is ${formatMoney(total, { decimals: 4 })}.`,
     });
+  }
+  if (values.asset_code.trim().toUpperCase() !== "XLM" && !values.asset_issuer?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["asset_issuer"],
+      message: "Asset issuer is required for non-XLM assets.",
+    });
+  }
+  for (const field of ["conditions", "approval_requirements"] as const) {
+    if (!values[field]?.trim()) continue;
+    try {
+      parseJsonObject(values[field]);
+    } catch (error) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: error instanceof Error ? error.message : "Enter a valid JSON object.",
+      });
+    }
   }
 });
 
@@ -82,6 +101,8 @@ export default function NewAgreementPage() {
   const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
     try {
+      const conditions = parseJsonObject(values.conditions || "");
+      const approvalRequirements = parseJsonObject(values.approval_requirements || "");
       const result = await api.post<{ id: string }>("/agreements", {
         supplier_id: values.supplier_id,
         title: values.title,
@@ -90,8 +111,8 @@ export default function NewAgreementPage() {
         asset_code: values.asset_code.toUpperCase(),
         ...(values.asset_issuer ? { asset_issuer: values.asset_issuer } : {}),
         expiry_date: new Date(values.expiry_date).toISOString(),
-        ...(values.conditions ? { conditions: values.conditions } : {}),
-        ...(values.approval_requirements ? { approval_requirements: values.approval_requirements } : {}),
+        ...(conditions ? { conditions } : {}),
+        ...(approvalRequirements ? { approval_requirements: approvalRequirements } : {}),
         milestones: values.milestones.map((milestone) => ({
           description: milestone.description,
           amount: milestone.amount,
@@ -135,17 +156,17 @@ export default function NewAgreementPage() {
             <FormField id="ag-asset" label="Asset" error={errors.asset_code?.message} required>
               <input id="ag-asset" maxLength={12} className={`${inputWithError(!!errors.asset_code)} uppercase`} {...register("asset_code")} />
             </FormField>
-            <FormField id="ag-issuer" label="Asset issuer" error={errors.asset_issuer?.message} hint="Leave blank for XLM" className="sm:col-span-2">
-              <input id="ag-issuer" className={inputWithError(!!errors.asset_issuer)} placeholder="G… (optional)" {...register("asset_issuer")} />
+            <FormField id="ag-issuer" label="Asset issuer" error={errors.asset_issuer?.message} hint="Required for non-XLM assets; leave blank for XLM" className="sm:col-span-2">
+              <input id="ag-issuer" className={inputWithError(!!errors.asset_issuer)} placeholder="G…" {...register("asset_issuer")} />
             </FormField>
             <FormField id="ag-expiry" label="Expiry date" error={errors.expiry_date?.message} required className="sm:col-span-2">
               <input id="ag-expiry" type="date" className={inputWithError(!!errors.expiry_date)} {...register("expiry_date")} />
             </FormField>
-            <FormField id="ag-conditions" label="Conditions" error={errors.conditions?.message} className="sm:col-span-2">
-              <textarea id="ag-conditions" rows={2} className={inputWithError(!!errors.conditions)} placeholder="What must happen before each milestone is released…" {...register("conditions")} />
+            <FormField id="ag-conditions" label="Conditions (JSON)" error={errors.conditions?.message} hint='Optional. For example: {"delivery": "on receipt"}' className="sm:col-span-2">
+              <textarea id="ag-conditions" rows={2} className={`${inputWithError(!!errors.conditions)} font-mono text-xs`} placeholder='{"delivery": "on receipt"}' {...register("conditions")} />
             </FormField>
-            <FormField id="ag-approval" label="Approval requirements" error={errors.approval_requirements?.message} className="sm:col-span-2">
-              <textarea id="ag-approval" rows={2} className={inputWithError(!!errors.approval_requirements)} placeholder="Who signs off on delivery…" {...register("approval_requirements")} />
+            <FormField id="ag-approval" label="Approval requirements (JSON)" error={errors.approval_requirements?.message} hint='Optional. For example: {"approver": "finance"}' className="sm:col-span-2">
+              <textarea id="ag-approval" rows={2} className={`${inputWithError(!!errors.approval_requirements)} font-mono text-xs`} placeholder='{"approver": "finance"}' {...register("approval_requirements")} />
             </FormField>
           </div>
 

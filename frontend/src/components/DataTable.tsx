@@ -133,13 +133,12 @@ export function FilterTabs<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Filter by status">
+    <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm" role="group" aria-label="Filter by status">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
-          role="tab"
-          aria-selected={value === option.value}
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 ease-spring focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
             value === option.value ? "bg-navy-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"

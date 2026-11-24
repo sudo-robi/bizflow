@@ -70,9 +70,11 @@ export function Providers({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  // Keep the module-level header value in sync during render so child pages
-  // already send the right X-Business-ID in their first request.
-  setActiveBusinessId(activeBusinessId);
+  // Keep the module-level header value in sync outside render so child pages
+  // send the right X-Business-ID without side effects during rendering.
+  useEffect(() => {
+    setActiveBusinessId(activeBusinessId);
+  }, [activeBusinessId]);
 
   const selectBusiness = useCallback((id: string) => {
     setActiveBusinessIdState(id);

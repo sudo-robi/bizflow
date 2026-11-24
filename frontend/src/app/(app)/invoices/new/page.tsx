@@ -31,6 +31,14 @@ const schema = z.object({
   due_date: z.string().min(1, "Choose a due date."),
   reference: z.string().trim().max(100).optional().or(z.literal("")),
   items: z.array(itemSchema),
+}).superRefine((values, context) => {
+  if (values.asset_code.trim().toUpperCase() !== "XLM" && !values.asset_issuer?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["asset_issuer"],
+      message: "Asset issuer is required for non-XLM assets.",
+    });
+  }
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -127,8 +135,8 @@ export default function NewInvoicePage() {
             <FormField id="asset_code" label="Asset" error={errors.asset_code?.message} required>
               <input id="asset_code" maxLength={12} className={`${inputWithError(!!errors.asset_code)} uppercase`} {...register("asset_code")} />
             </FormField>
-            <FormField id="asset_issuer" label="Asset issuer" error={errors.asset_issuer?.message} hint="Leave blank for native XLM">
-              <input id="asset_issuer" className={inputWithError(!!errors.asset_issuer)} placeholder="G… (optional)" {...register("asset_issuer")} />
+            <FormField id="asset_issuer" label="Asset issuer" error={errors.asset_issuer?.message} hint="Required for non-XLM assets; leave blank for native XLM">
+              <input id="asset_issuer" className={inputWithError(!!errors.asset_issuer)} placeholder="G…" {...register("asset_issuer")} />
             </FormField>
             <FormField id="due_date" label="Due date" error={errors.due_date?.message} required>
               <input id="due_date" type="date" className={inputWithError(!!errors.due_date)} {...register("due_date")} />

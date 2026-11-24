@@ -9,10 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.errors import conflict, not_found
+from app.errors import BizError, chain_error, conflict, not_found
 from app.models import BlockchainTransaction, Business, Invoice, PaymentRecord
 from app.schemas import Page, PublicReceiptOut, TransactionOut, VerificationOut, VerifyIn
-from app.security import get_business_membership
+from app.security import get_business_membership, require_roles
 from app.services import verification
 from app.utils import Pagination, paginate
 
@@ -63,13 +63,26 @@ def get_transaction(
     return {"transaction": TransactionOut.model_validate(record), "verification": fresh}
 
 
+def _hash_recorded_for_business(db: Session, tx_hash: str, business_id: str) -> bool:
+    """Duplicate checks must be scoped: another business cannot block this hash."""
+    return (
+        db.scalar(
+            select(BlockchainTransaction).where(
+                BlockchainTransaction.hash == tx_hash,
+                BlockchainTransaction.business_id == business_id,
+            )
+        )
+        is not None
+    )
+
+
 @router.post("/verify", response_model=VerificationOut)
 def verify_transaction(
     payload: VerifyIn,
-    membership=Depends(get_business_membership),
+    membership=Depends(require_roles("finance_manager")),
     db: Session = Depends(get_db),
 ):
-    if verification.hash_already_used(db, payload.hash):
+    if _hash_recorded_for_business(db, payload.hash, membership.business_id):
         raise conflict("This transaction hash is already linked to a payment", "DUPLICATE_HASH")
     if payload.invoice_id:
         invoice = db.get(Invoice, payload.invoice_id)
@@ -81,28 +94,47 @@ def verify_transaction(
             PaymentRecord.hash == payload.hash, PaymentRecord.business_id == membership.business_id
         )
     )
-    if payment and payment.kind == "escrow_release":
-        from app.models import AgreementMilestone, PaymentAgreement
-        agreement = db.get(PaymentAgreement, payment.agreement_id) if payment.agreement_id else None
-        milestone = db.get(AgreementMilestone, payment.milestone_id) if payment.milestone_id else None
-        agreement_ref = (
-            str(agreement.onchain_agreement_id)
-            if agreement and agreement.onchain_agreement_id is not None
-            else payment.agreement_id or ""
-        )
-        result = verification.verify_soroban_release(
-            payload.hash,
-            payment.destination_account or "",
-            agreement_ref,
-            milestone.sort_order if milestone else 0,
-        )
-    else:
-        result = verification.verify_stellar_payment(payload.hash)
-    if not verification.hash_already_used(db, payload.hash):
-        verification.record_transaction(
-            db, membership.business_id, result, payment.id if payment else None
-        )
-        db.commit()
+    try:
+        if payment and payment.kind == "escrow_release":
+            from app.models import AgreementMilestone, PaymentAgreement
+            agreement = db.get(PaymentAgreement, payment.agreement_id) if payment.agreement_id else None
+            milestone = db.get(AgreementMilestone, payment.milestone_id) if payment.milestone_id else None
+            agreement_ref = (
+                str(agreement.onchain_agreement_id)
+                if agreement and agreement.onchain_agreement_id is not None
+                else payment.agreement_id or ""
+            )
+            result = verification.verify_soroban_release(
+                payload.hash,
+                payment.destination_account or "",
+                agreement_ref,
+                milestone.sort_order if milestone else 0,
+            )
+        else:
+            result = verification.verify_stellar_payment(payload.hash)
+    except BizError:
+        # Provider errors carry upstream diagnostics: log them, never expose them.
+        logger.exception("Verification provider failed for hash %s", payload.hash)
+        raise chain_error("On-chain verification is temporarily unavailable") from None
+    except Exception:
+        logger.exception("Unexpected verification failure for hash %s", payload.hash)
+        raise chain_error("On-chain verification is temporarily unavailable") from None
+
+    if not _hash_recorded_for_business(db, payload.hash, membership.business_id):
+        if verification.hash_already_used(db, payload.hash):
+            # A different business already recorded this public hash; verifying it
+            # is still legitimate, but the global unique index prevents a second
+            # ledger row. Never turn that into a 409/500 for the verifying caller.
+            logger.info("Hash %s is already recorded by another business", payload.hash)
+        else:
+            try:
+                verification.record_transaction(
+                    db, membership.business_id, result, payment.id if payment else None
+                )
+                db.commit()
+            except BizError:
+                db.rollback()
+                logger.warning("Could not record verification for hash %s", payload.hash)
     return VerificationOut.model_validate(result.as_dict())
 
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuth } from "@/app/providers";
@@ -216,7 +216,7 @@ describe("InvoicesPage", () => {
     expect(screen.getByText("INV-002")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Search invoices"));
 
-    await user.click(screen.getByRole("tab", { name: "Paid" }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: "Paid" }));
     await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/v1/invoices?status=paid"));
     const rows = screen.getAllByRole("link");
     fireEvent.click(screen.getByText("INV-002").closest("tr") as HTMLElement);
@@ -253,10 +253,10 @@ describe("TransactionsPage", () => {
     render(<TransactionsPage />);
     expect(await screen.findByText("aaaaaaaaaa…aaaaaaaa")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Pending" }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: "Pending" }));
     await waitFor(() => expect(screen.queryByText("aaaaaaaaaa…aaaaaaaa")).not.toBeInTheDocument());
     expect(screen.getByText("bbbbbbbbbb…bbbbbbbb")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "All" }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: "All" }));
 
     await user.type(screen.getByLabelText("Search transactions"), "aaaa");
     await waitFor(() => expect(screen.queryByText("bbbbbbbbbb…bbbbbbbb")).not.toBeInTheDocument());
@@ -307,7 +307,7 @@ describe("NotificationsPage", () => {
     await waitFor(() => expect(screen.getByText("All notifications marked as read")).toBeInTheDocument());
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/v1/notifications/read-all");
 
-    await user.click(screen.getByRole("tab", { name: /Unread/ }));
+    await user.click(within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", { name: /Unread/ }));
     await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/v1/notifications?unread_only=true"));
   });
 

@@ -303,16 +303,24 @@ def invoked_contract_function(signed_xdr: str, passphrase: str | None = None) ->
     envelope = TransactionBuilder.from_xdr(
         signed_xdr, passphrase or settings.stellar_network_passphrase
     )
-    operations = getattr(getattr(envelope, "_transaction", None), "operations", None) or []
+    transaction = getattr(envelope, "transaction", None) or getattr(envelope, "_transaction", None)
+    operations = getattr(transaction, "operations", None) or []
     for operation in operations:
-        body = operation.body
-        if body.type != xdr.OperationType.INVOKE_HOST_FUNCTION:
+        # stellar-sdk 17 returns an InvokeHostFunction operation object directly;
+        # older SDKs expose it through operation.body.invoke_host_function_op.
+        host_function = getattr(operation, "host_function", None)
+        if host_function is None:
+            body = getattr(operation, "body", None)
+            invoke_op = getattr(body, "invoke_host_function_op", None)
+            host_function = getattr(invoke_op, "host_function", None)
+        if host_function is None:
             continue
-        host_function = body.invoke_host_function_op.host_function
         if host_function.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
             continue
         invocation = host_function.invoke_contract
-        function_name = scval.to_native(invocation.function_name.to_xdr())
+        symbol = invocation.function_name
+        raw_symbol = getattr(symbol, "sc_symbol", None)
+        function_name = bytes(raw_symbol).decode() if raw_symbol is not None else str(symbol)
         address = invocation.contract_address
         if address.type != xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT:
             continue
