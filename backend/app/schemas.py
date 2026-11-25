@@ -470,7 +470,7 @@ class PaymentPrepareIn(APIModel):
 
 
 class PaymentSubmitIn(APIModel):
-    signed_xdr: str = Field(min_length=1)
+    signed_xdr: str = Field(min_length=1, max_length=20000)
 
 
 class PaymentOut(APIModel):
@@ -618,8 +618,9 @@ class EscrowPrepareIn(APIModel):
 
 class EscrowFundPrepareIn(EscrowPrepareIn):
     amount: DecimalStr | None = None
-    # Numeric id the deployed contract was initialized with.
-    onchain_agreement_id: int | None = None
+    # Numeric id the deployed contract was initialized with. Must be a positive
+    # integer; uniqueness per agreement is enforced in the database as well.
+    onchain_agreement_id: int | None = Field(default=None, ge=1)
 
     @field_validator("amount")
     @classmethod
@@ -628,7 +629,7 @@ class EscrowFundPrepareIn(EscrowPrepareIn):
 
 
 class EscrowSubmitIn(APIModel):
-    signed_xdr: str = Field(min_length=1)
+    signed_xdr: str = Field(min_length=1, max_length=20000)
 
 
 class ReleasePrepareIn(EscrowPrepareIn):

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import secrets
+
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,6 +32,7 @@ from app.security import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _existing_user(db: Session, email: str) -> User | None:
@@ -36,12 +40,20 @@ def _existing_user(db: Session, email: str) -> User | None:
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
-    """httpOnly session cookie; JS cannot read it. SameSite=Lax + X-Business-ID
-    header requirement on business endpoints provide CSRF resistance."""
+    """httpOnly session cookie plus a readable double-submit CSRF token."""
     response.set_cookie(
         key=settings.session_cookie_name,
         value=token,
         httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        max_age=settings.jwt_expire_minutes * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key="bizflow_csrf",
+        value=secrets.token_urlsafe(32),
+        httponly=False,
         samesite="lax",
         secure=settings.session_cookie_secure,
         max_age=settings.jwt_expire_minutes * 60,
@@ -120,16 +132,21 @@ def logout(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Revoke the presented JWT server-side and clear the session cookie."""
+    """Revoke both presented JWTs server-side and clear the browser session."""
     authorization = request.headers.get("authorization", "")
-    token = (
-        authorization.split(" ", 1)[1]
-        if authorization.lower().startswith("bearer ")
-        else request.cookies.get(settings.session_cookie_name)
-    )
-    if token:
-        revoke_token(db, token, user.id)
+    tokens = []
+    if authorization.lower().startswith("bearer "):
+        tokens.append(authorization.split(" ", 1)[1])
+    cookie_token = request.cookies.get(settings.session_cookie_name)
+    if cookie_token and cookie_token not in tokens:
+        tokens.append(cookie_token)
+    for token in tokens:
+        try:
+            revoke_token(db, token, user.id)
+        except Exception:
+            logger.warning("Could not revoke one of the presented tokens on logout")
     response.delete_cookie(settings.session_cookie_name, path="/")
+    response.delete_cookie("bizflow_csrf", path="/")
     return {"ok": True, "user_id": user.id}
 
 

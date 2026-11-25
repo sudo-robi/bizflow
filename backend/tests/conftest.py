@@ -11,6 +11,10 @@ os.environ["SQLITE_PATH"] = ":memory:"
 os.environ["JWT_SECRET"] = "test-jwt-secret-at-least-32-bytes-long"
 os.environ["RATE_LIMIT_PER_MINUTE"] = "100000/minute"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
+# These suites stub the chain boundary at the *event* layer (verification.py).
+# Post-operation contract-state reads are a separate RPC boundary and are covered
+# by dedicated tests that explicitly re-enable the flag with a mocked getter.
+os.environ["ENFORCE_ESCROW_STATE_VERIFICATION"] = "false"
 
 from stellar_sdk import Keypair as _Keypair, StrKey as _StrKey
 

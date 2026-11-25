@@ -308,7 +308,9 @@ def test_soroban_wrapper_functions_delegate_to_event_verifier(monkeypatch):
 
     monkeypatch.setattr(verification, "verify_soroban_event", fake)
     assert verification.verify_soroban_release(HASH, CONTRACT, "AGR-1", 2).settled
-    assert calls[-1] == ("released", {"agreement_id": "AGR-1", "milestone_index": 2})
+    assert calls[-1] == (
+        "released", {"agreement_id": "AGR-1", "milestone_index": 2, "amount": None}
+    )
     assert verification.verify_soroban_funding(HASH, CONTRACT, Decimal("1"), "9").settled
     assert calls[-1][0] == "funded"
     assert verification.verify_soroban_approval(HASH, CONTRACT, "AGR-1", 3).settled

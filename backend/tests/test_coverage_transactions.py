@@ -100,7 +100,9 @@ def test_transaction_list_get_and_fresh_verification(client, owner, fake_horizon
     detail = client.get(f"/api/v1/transactions/{prepared['hash']}", headers=owner.headers)
     assert detail.status_code == 200
     assert detail.json()["verification"]["status"] == "successful"
-    assert client.get("/api/v1/transactions/missing", headers=owner.headers).status_code == 404
+    # Malformed hashes are rejected at the boundary; a well-formed unknown hash is 404.
+    assert client.get("/api/v1/transactions/missing", headers=owner.headers).status_code == 422
+    assert client.get(f"/api/v1/transactions/{'0' * 64}", headers=owner.headers).status_code == 404
 
 
 def test_get_transaction_reports_unknown_when_fresh_verification_fails(client, owner, fake_horizon, monkeypatch):
@@ -199,7 +201,8 @@ def test_main_exception_handlers_produce_structured_envelopes():
     })
     assert cleaned["loc"] == ("body", "amount")
     assert isinstance(cleaned["ctx"]["error"], str)
-    assert isinstance(cleaned["input"], str)
+    # Submitted values are intentionally never echoed back to the caller.
+    assert "input" not in cleaned
 
 
 def test_auth_inactive_account_is_rejected(client, owner):

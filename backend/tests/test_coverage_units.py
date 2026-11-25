@@ -236,7 +236,8 @@ def test_rate_limit_normalization_and_testnet_guard():
     assert settings.rate_limit_per_minute == "120/minute"
     assert settings.cors_origins_list == [o.strip() for o in settings.cors_origins.split(",")]
     assert settings.escrow_configured is False
-    assert Settings(jwt_secret="dev-only-jwt-secret-change-me").jwt_secret == "dev-only-jwt-secret-change-me"
+    with pytest.raises(ValueError, match="at least 32 characters"):
+        Settings(jwt_secret="dev-only-jwt-secret-change-me")
     with pytest.raises(ValueError, match="Unsupported Stellar network"):
         Settings(
             jwt_secret="32-byte-minimum-secret-for-tests",

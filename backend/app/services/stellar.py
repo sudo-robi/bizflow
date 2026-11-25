@@ -329,10 +329,31 @@ def invoked_contract_function(signed_xdr: str, passphrase: str | None = None) ->
     return None, None
 
 
+def invoked_contract_parameters(
+    signed_xdr: str, passphrase: str | None = None
+) -> list:
+    """Decode every invocation argument from a signed Soroban XDR."""
+    envelope = TransactionBuilder.from_xdr(
+        signed_xdr, passphrase or settings.stellar_network_passphrase
+    )
+    transaction = getattr(envelope, "transaction", None) or getattr(envelope, "_transaction", None)
+    for operation in getattr(transaction, "operations", None) or []:
+        host_function = getattr(operation, "host_function", None)
+        if host_function is None:
+            body = getattr(operation, "body", None)
+            invoke_op = getattr(body, "invoke_host_function_op", None)
+            host_function = getattr(invoke_op, "host_function", None)
+        if host_function is None or host_function.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
+            continue
+        return [scval.to_native(parameter) for parameter in host_function.invoke_contract.parameters]
+    raise bad_request("signed_xdr is not a contract invocation", "INVALID_XDR")
+
+
 def submit_soroban(
     signed_xdr: str,
     contract_id: str | None = None,
     function_name: str | None = None,
+    expected_parameters: list | None = None,
 ) -> ChainResult:
     """Send a signed Soroban tx and poll getTransaction for a definitive status.
 
@@ -357,6 +378,13 @@ def submit_soroban(
             raise bad_request("Signed transaction targets a different contract", "CONTRACT_MISMATCH")
         if function_name and decoded_function != function_name:
             raise bad_request("Signed transaction invokes a different function", "FUNCTION_MISMATCH")
+        if expected_parameters is not None:
+            try:
+                parameters = invoked_contract_parameters(signed_xdr)
+            except Exception as exc:
+                raise bad_request("Signed invocation parameters could not be decoded", "INVALID_XDR") from exc
+            if parameters != expected_parameters:
+                raise bad_request("Signed invocation parameters differ from the prepared operation", "PARAMETER_MISMATCH")
 
     server = soroban_server()
     try:

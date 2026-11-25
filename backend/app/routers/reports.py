@@ -20,7 +20,7 @@ from app.models import (
     PaymentRecord,
     Supplier,
 )
-from app.security import get_business_membership
+from app.security import require_roles
 from app.utils import money_str
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.get("/dashboard")
 def dashboard(
-    membership=Depends(get_business_membership), db: Session = Depends(get_db)
+    membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)
 ):
     business_id = membership.business_id
     by_status = dict(
@@ -122,7 +122,7 @@ def dashboard(
 
 
 @router.get("/analytics")
-def analytics(membership=Depends(get_business_membership), db: Session = Depends(get_db)):
+def analytics(membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)):
     """Business analytics derived only from stored, verified records."""
     from collections import OrderedDict
     from datetime import timedelta
@@ -217,7 +217,7 @@ def analytics(membership=Depends(get_business_membership), db: Session = Depends
 
 
 @router.get("/reconciliation")
-def reconciliation(membership=Depends(get_business_membership), db: Session = Depends(get_db)):
+def reconciliation(membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)):
     """Identify unmatched, partial, overpaid and inconsistent payment records."""
     from app.utils import money_str
 
@@ -293,7 +293,7 @@ def reconciliation(membership=Depends(get_business_membership), db: Session = De
 
 @router.get("/analytics.pdf")
 def analytics_pdf(
-    membership=Depends(get_business_membership), db: Session = Depends(get_db)
+    membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)
 ):
     """PDF export of the same DB-derived analytics used by the dashboard."""
     from reportlab.lib import colors
@@ -360,7 +360,7 @@ def analytics_pdf(
 
 @router.get("/payments.csv")
 def payments_csv(
-    membership=Depends(get_business_membership), db: Session = Depends(get_db)
+    membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)
 ):
     rows = db.scalars(
         select(PaymentRecord)

@@ -124,10 +124,9 @@ export async function getNetwork(): Promise<FreighterNetwork> {
 
 export async function assertTestnet(): Promise<FreighterNetwork> {
   const network = await getNetwork();
-  const isTestnet =
-    network.networkPassphrase === TESTNET_PASSPHRASE ||
-    /test\s*net/i.test(network.network) ||
-    /test\s*net/i.test(network.networkPassphrase);
+  // The passphrase is the authoritative network identity. A wallet that merely
+  // *names* its network "testnet" must not be accepted for signing.
+  const isTestnet = network.networkPassphrase === TESTNET_PASSPHRASE;
   if (!isTestnet) {
     throw new WalletError(
       `Freighter is connected to "${network.network}". BizFlow only settles on Stellar Testnet — switch networks in Freighter and try again.`,

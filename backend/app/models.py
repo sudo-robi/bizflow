@@ -238,6 +238,17 @@ class PaymentAgreement(Base, TimestampMixin):
     __tablename__ = "payment_agreements"
     __table_args__ = (
         UniqueConstraint("business_id", "reference", name="uq_agreement_business_reference"),
+        # One contract instance can hold only one *funded* agreement. Draft
+        # agreements may reference the shared configured contract, but a second
+        # funding must be refused at the database level (not just by a TOCTOU
+        # pre-check).
+        Index(
+            "uq_agreement_funded_contract",
+            "escrow_contract_id",
+            unique=True,
+            sqlite_where=text("fund_transaction_hash IS NOT NULL"),
+            postgresql_where=text("fund_transaction_hash IS NOT NULL"),
+        ),
         Index("ix_agreement_business_status", "business_id", "status"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -415,5 +426,40 @@ class AuditLog(Base):
     details: Mapped[dict | None] = mapped_column(JSON)
     ip_address: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
+class ReconciliationRecord(Base):
+    """Immutable, auditable comparison between database and chain state.
+
+    Reconciliation is read-only with respect to financial records: a discrepancy
+    is recorded here for a human decision, never silently repaired.
+    """
+
+    __tablename__ = "reconciliation_records"
+    __table_args__ = (
+        Index("ix_reconciliation_agreement_time", "agreement_id", "detected_at"),
+        Index("ix_reconciliation_business", "business_id"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    business_id: Mapped[str] = mapped_column(
+        ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    agreement_id: Mapped[str] = mapped_column(
+        ForeignKey("payment_agreements.id", ondelete="CASCADE"), nullable=False
+    )
+    transaction_hash: Mapped[str | None] = mapped_column(String(64))
+    contract_id: Mapped[str | None] = mapped_column(String(56))
+    expected_state: Mapped[dict] = mapped_column(JSON, nullable=False)
+    observed_state: Mapped[dict | None] = mapped_column(JSON)
+    discrepancy: Mapped[list] = mapped_column(JSON, nullable=False)
+    resolution_status: Mapped[str] = mapped_column(
+        String(24), default="open", nullable=False
+    )
+    resolved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_note: Mapped[Text | None] = mapped_column(Text)
+    detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )

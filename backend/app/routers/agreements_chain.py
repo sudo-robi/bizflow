@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -12,7 +13,7 @@ from stellar_sdk import soroban_rpc
 
 from app.config import get_settings
 from app.database import get_db
-from app.errors import bad_request, conflict, not_found
+from app.errors import BizError, bad_request, conflict, not_found
 from app.models import (
     AgreementMilestone,
     AuditLog,
@@ -38,7 +39,7 @@ from app.schemas import (
     ReleasePrepareIn,
 )
 from app.security import get_business_membership, get_current_user, require_roles
-from app.services import stellar, verification
+from app.services import reconciliation, stellar, verification
 from app.services.notifications import audit, notify_business
 from app.utils import add_seconds, money_str, naive, to_decimal, utcnow
 
@@ -66,7 +67,6 @@ def fund_agreement(
     contract_id = agreement.escrow_contract_id or settings.stellar_escrow_contract_id
     if not contract_id:
         raise bad_request("Escrow contract ID is not configured", "CONTRACT_NOT_CONFIGURED")
-
     # Bind the payment to this agreement: amount, asset, issuer, destination and
     # memo all come from trusted server state. An unrelated payment of the same
     # amount can no longer mark an agreement as funded.
@@ -162,6 +162,33 @@ def _escrow_payment(db, tx_hash: str, agreement_id: str, business_id: str, kind:
     return payment
 
 
+def _assert_no_duplicate_hash(db, tx_hash: str) -> None:
+    """A verified hash may never settle a second agreement/payment."""
+    if verification.hash_already_used(db, tx_hash):
+        raise conflict("This transaction hash is already linked to a payment", "DUPLICATE_HASH")
+
+
+def _verify_state(db, agreement, payment, **expected):
+    """Read authoritative Soroban state before any financial record changes."""
+    if not settings.enforce_escrow_state_verification:
+        return {"enforced": False}
+    return reconciliation.verify_escrow_state(
+        db,
+        agreement,
+        contract_id=payment.destination_account or agreement.escrow_contract_id,
+        source_account=payment.source_account,
+        **expected,
+    )
+
+
+def _fail_unverified_state(db, payment, exc: BizError) -> None:
+    """Record the failed state check explicitly; never leave a prepared record ambiguous."""
+    payment.status = "failed"
+    payment.failure_reason = f"{exc.code}: {exc.detail}"
+    db.commit()
+    raise exc
+
+
 @router.post("/{agreement_id}/prepare-fund")
 def prepare_escrow_fund(
     agreement_id: str,
@@ -191,6 +218,14 @@ def prepare_escrow_fund(
     if other is not None:
         raise conflict("This escrow contract is already bound to another funded agreement", "CONTRACT_IN_USE")
     if payload.onchain_agreement_id is not None:
+        other = db.scalar(
+            select(PaymentAgreement).where(
+                PaymentAgreement.onchain_agreement_id == payload.onchain_agreement_id,
+                PaymentAgreement.id != agreement.id,
+            )
+        )
+        if other is not None:
+            raise conflict("This on-chain agreement id is bound to another agreement", "ONCHAIN_ID_IN_USE")
         agreement.onchain_agreement_id = payload.onchain_agreement_id
     _onchain_agreement_id(agreement)
     prepared = stellar.build_soroban_fund_xdr(contract_id, source, amount)
@@ -232,6 +267,7 @@ def fund_escrow(
     if agreement.fund_transaction_hash:
         raise conflict("Agreement is already funded", "ALREADY_FUNDED")
     tx_hash = stellar.transaction_hash(payload.signed_xdr)
+    _assert_no_duplicate_hash(db, tx_hash)
     payment = _escrow_payment(db, tx_hash, agreement.id, membership.business_id, "escrow_fund")
     if payment.expires_at and naive(payment.expires_at) < utcnow():
         payment.status = "failed"
@@ -241,7 +277,13 @@ def fund_escrow(
     contract_id = payment.destination_account
     if contract_id != (agreement.escrow_contract_id or settings.stellar_escrow_contract_id):
         raise bad_request("Prepared funding targets a different contract", "CONTRACT_MISMATCH")
-    submitted = stellar.submit_soroban(payload.signed_xdr, contract_id, "fund")
+    submitted = stellar.submit_soroban(
+        payload.signed_xdr, contract_id, "fund",
+        expected_parameters=[
+            payment.source_account,
+            int((to_decimal(payment.amount) * Decimal("10000000")).to_integral_value()),
+        ],
+    )
     if not (submitted.confirmed and submitted.successful):
         payment.status = "failed"
         payment.failure_reason = submitted.reason
@@ -255,13 +297,20 @@ def fund_escrow(
         payment.failure_reason = verified.reason
         db.commit()
         raise conflict(verified.reason or "Funding event could not be verified", "UNVERIFIED_EVENT")
+    try:
+        state_evidence = _verify_state(
+            db, agreement, payment,
+            funded_extra=int((to_decimal(payment.amount) * Decimal("10000000")).to_integral_value()),
+        )
+    except BizError as exc:
+        _fail_unverified_state(db, payment, exc)
     verification.record_transaction(db, membership.business_id, verified, payment.id)
     payment.status = "confirmed"
     payment.confirmed_at = utcnow()
     agreement.funded_amount = payment.amount
     agreement.fund_transaction_hash = tx_hash
     agreement.escrow_contract_id = contract_id
-    audit(db, membership.business_id, membership.user_id, "agreement.escrow_funded", "agreement", agreement.id, {"hash": tx_hash})
+    audit(db, membership.business_id, membership.user_id, "agreement.escrow_funded", "agreement", agreement.id, {"hash": tx_hash, "contract_state": state_evidence})
     notify_business(db, membership.business_id, "Escrow funded", f"{money_str(payment.amount)} {payment.asset_code} is held by the escrow contract.", "agreement", agreement.id)
     db.commit()
     db.refresh(agreement)
@@ -328,6 +377,7 @@ def approve_milestone(
     _approval_ready(db, milestone)
     onchain_id = _onchain_agreement_id(agreement)
     tx_hash = stellar.transaction_hash(payload.signed_xdr)
+    _assert_no_duplicate_hash(db, tx_hash)
     payment = _escrow_payment(db, tx_hash, agreement.id, membership.business_id, "escrow_approval")
     if payment.milestone_id != milestone.id:
         raise not_found("Prepared approval not found for this milestone")
@@ -344,7 +394,8 @@ def approve_milestone(
     if payment.destination_account != expected_contract:
         raise bad_request("Prepared approval targets a different contract", "CONTRACT_MISMATCH")
     submitted = stellar.submit_soroban(
-        payload.signed_xdr, payment.destination_account, "approve_milestone"
+        payload.signed_xdr, payment.destination_account, "approve_milestone",
+        expected_parameters=[payment.source_account, milestone.sort_order],
     )
     if not (submitted.confirmed and submitted.successful):
         payment.status = "failed"
@@ -359,11 +410,18 @@ def approve_milestone(
         payment.failure_reason = verified.reason
         db.commit()
         raise conflict(verified.reason or "Approval event could not be verified", "UNVERIFIED_EVENT")
+    try:
+        state_evidence = _verify_state(
+            db, agreement, payment, milestone_index=milestone.sort_order,
+            expect_approved=True, expect_released=False,
+        )
+    except BizError as exc:
+        _fail_unverified_state(db, payment, exc)
     verification.record_transaction(db, membership.business_id, verified, payment.id)
     payment.status = "confirmed"
     payment.confirmed_at = utcnow()
     milestone.status = "approved"
-    audit(db, membership.business_id, membership.user_id, "milestone.approved", "agreement_milestone", milestone.id, {"hash": tx_hash})
+    audit(db, membership.business_id, membership.user_id, "milestone.approved", "agreement_milestone", milestone.id, {"hash": tx_hash, "contract_state": state_evidence})
     notify_business(db, membership.business_id, "Milestone approved", f"Milestone {milestone.sort_order + 1} is approved for release.", "agreement", agreement.id)
     db.commit()
     db.refresh(agreement)
@@ -468,6 +526,7 @@ def release_milestone(
         raise conflict("Milestone must be approved on-chain before release", "MILESTONE_NOT_APPROVED")
     onchain_id = _onchain_agreement_id(agreement)
     tx_hash = stellar.transaction_hash(payload.signed_xdr)
+    _assert_no_duplicate_hash(db, tx_hash)
     payment = db.scalar(
         select(PaymentRecord).where(
             PaymentRecord.hash == tx_hash,
@@ -491,7 +550,10 @@ def release_milestone(
     contract_id = agreement.escrow_contract_id or settings.stellar_escrow_contract_id
     if payment.destination_account != contract_id:
         raise bad_request("Prepared release targets a different contract", "CONTRACT_MISMATCH")
-    submitted = stellar.submit_soroban(payload.signed_xdr, contract_id, "release_milestone")
+    submitted = stellar.submit_soroban(
+        payload.signed_xdr, contract_id, "release_milestone",
+        expected_parameters=[payment.source_account, milestone.sort_order],
+    )
     if not (submitted.confirmed and submitted.successful):
         payment.status = "failed"
         payment.failure_reason = submitted.reason
@@ -500,13 +562,21 @@ def release_milestone(
         raise conflict(submitted.reason or "Soroban transaction was not confirmed", "UNCONFIRMED_TX")
 
     verified = verification.verify_soroban_release(
-        tx_hash, contract_id, onchain_id, milestone.sort_order
+        tx_hash, contract_id, onchain_id, milestone.sort_order, amount=to_decimal(milestone.amount)
     )
     if not verified.settled:
         payment.status = "failed"
         payment.failure_reason = verified.reason
         db.commit()
         raise conflict(verified.reason or "Release event could not be verified", "UNVERIFIED_EVENT")
+    try:
+        state_evidence = _verify_state(
+            db, agreement, payment,
+            released_extra=int((to_decimal(milestone.amount) * Decimal("10000000")).to_integral_value()),
+            milestone_index=milestone.sort_order, expect_approved=True, expect_released=True,
+        )
+    except BizError as exc:
+        _fail_unverified_state(db, payment, exc)
 
     payment.status = "confirmed"
     payment.confirmed_at = utcnow()
@@ -524,7 +594,8 @@ def release_milestone(
         agreement.status = "completed"
     audit(
         db, membership.business_id, membership.user_id, "milestone.released",
-        "agreement_milestone", milestone.id, {"hash": tx_hash, "amount": money_str(milestone.amount)},
+        "agreement_milestone", milestone.id,
+        {"hash": tx_hash, "amount": money_str(milestone.amount), "contract_state": state_evidence},
     )
     notify_business(
         db, membership.business_id, "Milestone released",
@@ -615,6 +686,7 @@ def refund_escrow(
     _refundable(db, agreement)
     onchain_id = _onchain_agreement_id(agreement)
     tx_hash = stellar.transaction_hash(payload.signed_xdr)
+    _assert_no_duplicate_hash(db, tx_hash)
     payment = _escrow_payment(db, tx_hash, agreement.id, membership.business_id, "escrow_refund")
     if payment.status == "confirmed":
         raise conflict("Agreement was already refunded", "ALREADY_REFUNDED")
@@ -631,7 +703,10 @@ def refund_escrow(
     if to_decimal(payment.amount) != to_decimal(agreement.funded_amount):
         raise bad_request("Prepared refund amount does not match the escrow balance", "AMOUNT_MISMATCH")
 
-    submitted = stellar.submit_soroban(payload.signed_xdr, contract_id, "refund")
+    submitted = stellar.submit_soroban(
+        payload.signed_xdr, contract_id, "refund",
+        expected_parameters=[payment.source_account],
+    )
     if not (submitted.confirmed and submitted.successful):
         payment.status = "failed"
         payment.failure_reason = submitted.reason
@@ -649,13 +724,17 @@ def refund_escrow(
         db.commit()
         raise conflict(verified.reason or "Refund event could not be verified", "UNVERIFIED_EVENT")
 
+    try:
+        state_evidence = _verify_state(db, agreement, payment, expect_empty=True)
+    except BizError as exc:
+        _fail_unverified_state(db, payment, exc)
     verification.record_transaction(db, membership.business_id, verified, payment.id)
     payment.status = "confirmed"
     payment.confirmed_at = utcnow()
     agreement.status = "refunded"
     audit(
         db, membership.business_id, membership.user_id, "agreement.refunded", "agreement",
-        agreement.id, {"hash": tx_hash, "amount": money_str(payment.amount)},
+        agreement.id, {"hash": tx_hash, "amount": money_str(payment.amount), "contract_state": state_evidence},
     )
     notify_business(
         db, membership.business_id, "Escrow refunded",

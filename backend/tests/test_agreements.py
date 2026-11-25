@@ -183,7 +183,7 @@ def test_milestone_prepare_and_release_completes_agreement(client, owner, suppli
     )
     monkeypatch.setattr(
         stellar, "submit_soroban",
-        lambda xdr, contract_id=None, function_name=None: stellar.ChainResult(
+        lambda xdr, contract_id=None, function_name=None, **kwargs: stellar.ChainResult(
             hash=APPROVE_HASH if xdr == "AAAA-approve" else RELEASE_HASH,
             status="SUCCESS", confirmed=True, successful=True, ledger=10,
         ),
@@ -230,7 +230,7 @@ def test_milestone_prepare_and_release_completes_agreement(client, owner, suppli
     monkeypatch.setattr(
         stellar,
         "submit_soroban",
-        lambda xdr, contract_id=None, function_name=None: stellar.ChainResult(
+        lambda xdr, contract_id=None, function_name=None, **kwargs: stellar.ChainResult(
             hash=RELEASE_HASH, status="SUCCESS", confirmed=True, successful=True, ledger=10
         ),
     )

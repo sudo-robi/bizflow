@@ -125,7 +125,7 @@ def update_business(
 @router.get("/{business_id}/members", response_model=list[MemberOut])
 def list_members(
     business_id: str,
-    membership: BusinessMember = Depends(get_business_membership),
+    membership: BusinessMember = Depends(require_roles("finance_manager")),
     db: Session = Depends(get_db),
 ):
     require_business(membership, business_id)

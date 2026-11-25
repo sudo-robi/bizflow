@@ -42,6 +42,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if not _has_column():
-        return
-    op.drop_column(TABLE, COLUMN)
+    # 0001_initial owns this column on every current chain. Dropping it here
+    # left the ORM pointing at a missing column after a rollback, so the
+    # downgrade is intentionally a no-op.
+    return

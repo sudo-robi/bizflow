@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AuditLog
 from app.schemas import AuditOut, Page
-from app.security import get_business_membership
+from app.security import require_roles
 from app.utils import Pagination, paginate
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 def list_audit_logs(
     action: str | None = None,
     pagination: Pagination = Depends(),
-    membership=Depends(get_business_membership),
+    membership=Depends(require_roles("finance_manager")),
     db: Session = Depends(get_db),
 ):
     query = select(AuditLog).where(AuditLog.business_id == membership.business_id)
