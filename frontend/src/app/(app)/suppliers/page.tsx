@@ -3,17 +3,18 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, Building2, Plus, Search, Users } from "lucide-react";
+import { Archive, Building2, Plus, Search } from "lucide-react";
 import { DataTable, FilterTabs, TableToolbar, type Column } from "@/components/DataTable";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SupplierForm, type SupplierFormValues } from "@/components/SupplierForm";
 import { useToast } from "@/components/ToastProvider";
 import { useAuth } from "@/app/providers";
 import { api, getErrorMessage } from "@/lib/api";
-import { truncateAddress } from "@/lib/format";
+import { formatNumber, truncateAddress } from "@/lib/format";
 import { useApiResource } from "@/lib/useApiResource";
 import type { Paginated, Supplier } from "@/lib/types";
 
@@ -45,6 +46,7 @@ export default function SuppliersPage() {
     if (filter === "archived") return supplier.status === "archived";
     return true;
   });
+  const archivedCount = suppliers.filter((supplier) => supplier.status === "archived").length;
 
   const onCreate = async (values: SupplierFormValues) => {
     setSaving(true);
@@ -81,12 +83,12 @@ export default function SuppliersPage() {
       header: "Supplier",
       render: (row) => (
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-accent-50 text-accent-600" aria-hidden="true">
             <Building2 className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <p className="truncate font-medium text-navy-900">{row.business_name}</p>
-            <p className="truncate text-xs text-slate-500">{row.email || row.contact_name || "No contact details"}</p>
+            <p className="truncate font-semibold text-ink-900">{row.business_name}</p>
+            <p className="truncate text-xs text-ink-400">{row.email || row.contact_name || "No contact details"}</p>
           </div>
         </div>
       ),
@@ -94,10 +96,10 @@ export default function SuppliersPage() {
     {
       key: "wallet_address",
       header: "Stellar address",
-      render: (row) => <span className="font-mono text-xs text-slate-600">{truncateAddress(row.wallet_address, 8, 6)}</span>,
+      render: (row) => <span className="font-mono text-xs text-ink-500">{truncateAddress(row.wallet_address, 8, 6)}</span>,
     },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status || "active"} /> },
-    { key: "country", header: "Country", render: (row) => <span className="text-slate-500">{row.country || "—"}</span> },
+    { key: "country", header: "Country", render: (row) => <span className="text-ink-400">{row.country || "—"}</span> },
     {
       key: "actions",
       header: "",
@@ -105,12 +107,14 @@ export default function SuppliersPage() {
       className: "text-right",
       render: (row) => (
         <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-          <Link href={`/suppliers/${row.id}`} className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-accent-600 hover:bg-accent-50">View</Link>
+          <Link href={`/suppliers/${row.id}`} className="rounded-control px-2.5 py-2 text-xs font-semibold text-accent-700 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500">
+            View
+          </Link>
           {can("owner", "admin") && row.status !== "archived" ? (
             <button
               type="button"
               onClick={() => setToArchive(row)}
-              className="rounded-md p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+              className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-control text-ink-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
               aria-label={`Archive ${row.business_name}`}
               title="Archive supplier"
             >
@@ -130,29 +134,33 @@ export default function SuppliersPage() {
         description="Manage the organisations you pay, including their verified Stellar receiving addresses."
         actions={
           can("owner", "admin", "finance_manager") ? (
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent-700"
-            >
+            <button type="button" onClick={() => setAddOpen(true)} className="ui-btn-accent">
               <Plus className="h-4 w-4" /> Add supplier
             </button>
           ) : null
         }
       />
 
-      {error ? <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+      {error ? (
+        <div role="alert" className="ui-card mb-5 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+      ) : null}
+
+      <div className="mb-5 grid gap-4 sm:grid-cols-3">
+        <StatCard label="Total suppliers" value={formatNumber(suppliers.length)} hint="Loaded in this workspace" icon={<Building2 className="h-5 w-5" />} />
+        <StatCard label="Active" value={formatNumber(suppliers.length - archivedCount)} hint="Available for new invoices" accent="green" />
+        <StatCard label="Archived" value={formatNumber(archivedCount)} hint="Kept for historical records" accent="slate" icon={<Archive className="h-5 w-5" />} />
+      </div>
 
       <TableToolbar>
         <div className="relative w-full sm:max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" aria-hidden="true" />
           <input
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by name or email…"
             aria-label="Search suppliers"
-            className="block w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-accent-600 focus:ring-2 focus:ring-accent-100"
+            className="ui-input pl-9"
           />
         </div>
         <FilterTabs
@@ -175,7 +183,7 @@ export default function SuppliersPage() {
         emptyTitle={search ? "No matching suppliers" : "No suppliers yet"}
         emptyDescription={search ? "Try a different name or clear your search." : "Add your first supplier and their Stellar address to start paying invoices."}
         emptyAction={!search && can("owner", "admin", "finance_manager") ? (
-          <button onClick={() => setAddOpen(true)} className="rounded-lg bg-accent-600 px-4 py-2 text-sm font-semibold text-white hover:bg-accent-700">Add supplier</button>
+          <button onClick={() => setAddOpen(true)} className="ui-btn-accent min-h-[36px] px-4 py-2">Add supplier</button>
         ) : undefined}
       />
 

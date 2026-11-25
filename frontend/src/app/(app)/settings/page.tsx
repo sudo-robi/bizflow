@@ -124,10 +124,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in space-y-5">
       <PageHeader eyebrow="Workspace" title="Settings" description="Manage your business profile and the people who can access this workspace." />
 
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
+      <div className="grid items-start gap-5 lg:grid-cols-[1.1fr_1fr]">
         <SectionCard title="Business profile" description="Shown on invoices and agreements">
           <form onSubmit={businessForm.handleSubmit((values) => void onSaveBusiness(values))} className="space-y-4" noValidate>
             <FormField id="set-name" label="Business name" error={businessForm.formState.errors.name?.message} required>
@@ -145,12 +145,12 @@ export default function SettingsPage() {
               </FormField>
             </div>
             {canManage ? (
-              <button type="submit" disabled={savingBusiness} className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-700 disabled:opacity-50">
+              <button type="submit" disabled={savingBusiness} className="ui-btn-accent min-h-9">
                 {savingBusiness ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {savingBusiness ? "Saving…" : "Save changes"}
               </button>
             ) : (
-              <p className="text-xs text-slate-500">Only owners and admins can edit the business profile.</p>
+              <p className="ui-muted">Only owners and admins can edit the business profile.</p>
             )}
           </form>
         </SectionCard>
@@ -169,7 +169,7 @@ export default function SettingsPage() {
                     <option value="supplier">Supplier</option>
                   </select>
                 </FormField>
-                <button type="submit" disabled={inviting} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-navy-900 hover:bg-slate-50 disabled:opacity-50">
+                <button type="submit" disabled={inviting} className="ui-btn-secondary min-h-9">
                   {inviting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   {inviting ? "Sending…" : "Send invitation"}
                 </button>
@@ -177,59 +177,68 @@ export default function SettingsPage() {
             </SectionCard>
           ) : null}
 
-          <div className="rounded-xl border border-accent-100 bg-accent-50 p-5">
-            <Shield className="h-5 w-5 text-accent-600" />
-            <p className="mt-3 text-sm font-semibold text-navy-900">Role-based access</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+          <section className="ui-card border-accent-100 bg-accent-50 p-5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-control bg-white text-accent-700" aria-hidden="true"><Shield className="h-5 w-5" /></span>
+            <p className="mt-3 text-sm font-semibold text-ink-900">Role-based access</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">
               Owners and admins manage everything. Finance managers create invoices and prepare payments. Suppliers can accept agreements and view their own records.
             </p>
-          </div>
+          </section>
         </div>
       </div>
 
-      <div className="mt-5">
-        <SectionCard title="Team members" description={`${members?.length || 0} people with access to ${activeBusiness?.name || "this business"}`} className="[&>div:last-child]:p-0">
-          {membersLoading ? (
-            <div className="space-y-3 p-5">{[1, 2, 3].map((key) => <div key={key} className="h-14 animate-pulse rounded-lg bg-slate-50" />)}</div>
-          ) : members?.length ? (
-            <ul className="divide-y divide-slate-100">
-              {members.map((member) => {
-                const userId = member.user?.id;
-                return (
-                  <li key={userId || member.user?.email} className="flex flex-wrap items-center gap-4 px-5 py-4">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900 text-xs font-bold text-white">
-                      {initials(member.user?.full_name || member.user?.email || "U")}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-navy-900">{member.user?.full_name || member.user?.email || "Team member"}</p>
-                      <p className="flex items-center gap-1.5 truncate text-xs text-slate-500"><Mail className="h-3 w-3" /> {member.user?.email || "—"}</p>
-                    </div>
-                    <StatusBadge status={member.status || "active"} />
-                    <select
-                      value={member.role}
-                      disabled={!canManage || member.role === "owner" || busyMember === userId}
-                      onChange={(event) => void changeRole(member, event.target.value as Role)}
-                      aria-label={`Role for ${member.user?.email || "member"}`}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-navy-900 outline-none focus:border-accent-600 disabled:bg-slate-50 disabled:text-slate-400"
+      <SectionCard
+        title="Team members"
+        description={`${members?.length || 0} people with access to ${activeBusiness?.name || "this business"}`}
+        className="[&>div:last-child]:p-0"
+      >
+        {membersLoading ? (
+          <div className="space-y-3 p-5" role="status" aria-label="Loading team members">
+            {[1, 2, 3].map((key) => <div key={key} className="h-14 animate-pulse rounded-control bg-canvas" />)}
+          </div>
+        ) : members?.length ? (
+          <ul className="divide-y divide-line">
+            {members.map((member) => {
+              const userId = member.user?.id;
+              return (
+                <li key={userId || member.user?.email} className="flex flex-wrap items-center gap-3 px-4 py-4 transition-colors duration-150 hover:bg-canvas/70 sm:gap-4 sm:px-5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900 text-xs font-bold text-white" aria-hidden="true">
+                    {initials(member.user?.full_name || member.user?.email || "U")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink-900">{member.user?.full_name || member.user?.email || "Team member"}</p>
+                    <p className="flex items-center gap-1.5 truncate text-xs text-ink-400"><Mail className="h-3 w-3" aria-hidden="true" /> {member.user?.email || "—"}</p>
+                  </div>
+                  <StatusBadge status={member.status || "active"} />
+                  <select
+                    value={member.role}
+                    disabled={!canManage || member.role === "owner" || busyMember === userId}
+                    onChange={(event) => void changeRole(member, event.target.value as Role)}
+                    aria-label={`Role for ${member.user?.email || "member"}`}
+                    className="ui-select min-h-9 w-auto px-2.5 py-1.5 text-xs font-medium disabled:bg-canvas disabled:text-ink-400"
+                  >
+                    {ROLE_OPTIONS.filter((option) => option.value !== "owner" || member.role === "owner").map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  {canManage && member.role !== "owner" ? (
+                    <button
+                      type="button"
+                      onClick={() => setToRemove(member)}
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-ink-400 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2"
+                      aria-label={`Remove ${member.user?.email || "member"}`}
                     >
-                      {ROLE_OPTIONS.filter((option) => option.value !== "owner" || member.role === "owner").map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    {canManage && member.role !== "owner" ? (
-                      <button onClick={() => setToRemove(member)} className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${member.user?.email || "member"}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <EmptyState icon={<Users className="h-6 w-6" />} title="No team members" description="Invite teammates to collaborate on payments and approvals." />
-          )}
-        </SectionCard>
-      </div>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <EmptyState icon={<Users className="h-6 w-6" />} title="No team members" description="Invite teammates to collaborate on payments and approvals." />
+        )}
+      </SectionCard>
 
       <ConfirmModal
         open={!!toRemove}

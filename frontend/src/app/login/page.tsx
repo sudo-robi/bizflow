@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Loader2 } from "lucide-react";
+import { Loader2, LockKeyhole } from "lucide-react";
 import { AuthCard } from "@/components/AuthCard";
 import { FormField, inputWithError } from "@/components/FormField";
 import { useToast } from "@/components/ToastProvider";
@@ -54,25 +54,29 @@ export default function LoginPage() {
       footer={
         <p>
           New to BizFlow?{" "}
-          <Link href="/register" className="font-semibold text-accent-600 hover:text-accent-700">Create an account</Link>
+          <Link href="/register" className="font-semibold text-accent-700 hover:text-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2">Create an account</Link>
         </p>
       }
     >
       <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="space-y-4" noValidate>
         <FormField id="email" label="Work email" error={errors.email?.message} required>
-          <input id="email" type="email" autoComplete="email" className={inputWithError(!!errors.email)} placeholder="alex@company.com" {...register("email")} />
+          <input id="email" type="email" autoComplete="email" className={inputWithError(!!errors.email)} placeholder="alex@company.com" aria-describedby={errors.email ? "email-error" : undefined} {...register("email")} />
         </FormField>
         <FormField id="password" label="Password" error={errors.password?.message} required>
-          <input id="password" type="password" autoComplete="current-password" className={inputWithError(!!errors.password)} placeholder="••••••••" {...register("password")} />
+          <input id="password" type="password" autoComplete="current-password" className={inputWithError(!!errors.password)} placeholder="••••••••" aria-describedby={errors.password ? "password-error" : undefined} {...register("password")} />
         </FormField>
         <button
           type="submit"
           disabled={submitting}
-          className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-spring hover:bg-accent-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 disabled:opacity-60"
+          className="ui-btn-accent mt-2 min-h-11 w-full"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
           {submitting ? "Signing in…" : "Sign in"}
         </button>
+        <p className="flex items-center justify-center gap-1.5 border-t border-line pt-4 text-xs text-ink-400">
+          <LockKeyhole className="h-3.5 w-3.5" aria-hidden="true" />
+          Sessions are stored in httpOnly cookies, never in browser storage.
+        </p>
       </form>
     </AuthCard>
   );

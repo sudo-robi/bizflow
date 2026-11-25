@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Info, X, AlertTriangle } from "lucide-react";
 
 type ToastKind = "success" | "error" | "info" | "warning";
@@ -40,6 +40,15 @@ let nextId = 1;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(
+    () => () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    },
+    [],
+  );
 
   const dismiss = useCallback((id: number) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
@@ -49,7 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (kind: ToastKind, title: string, message?: string) => {
       const id = nextId++;
       setToasts((current) => [...current.slice(-3), { id, kind, title, message }]);
-      setTimeout(() => dismiss(id), 6000);
+      timers.current.push(setTimeout(() => dismiss(id), 6000));
     },
     [dismiss],
   );
@@ -79,7 +88,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div
               key={toast.id}
               role={toast.kind === "error" ? "alert" : "status"}
-              className={`pointer-events-auto flex animate-toast-in items-start gap-3 rounded-xl border p-4 shadow-card ${styleFor[toast.kind]}`}
+              className={`pointer-events-auto flex animate-toast-in items-start gap-3 rounded-card border p-4 shadow-card ${styleFor[toast.kind]}`}
             >
               <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
               <div className="min-w-0 flex-1">

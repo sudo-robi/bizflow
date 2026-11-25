@@ -19,7 +19,7 @@ const iconTone = {
 
 export function StatCard({ label, value, hint, icon, trend, accent = "blue" }: StatCardProps) {
   return (
-    <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-card transition-all duration-300 ease-spring hover:-translate-y-0.5 hover:border-accent-200 hover:shadow-lg">
+    <div className="ui-card p-5 transition-colors duration-150 hover:border-accent-200">
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
         {icon ? (
@@ -28,7 +28,7 @@ export function StatCard({ label, value, hint, icon, trend, accent = "blue" }: S
           </span>
         ) : null}
       </div>
-      <p className="mt-4 font-display text-2xl leading-none tracking-tight text-navy-900 sm:text-[28px]">{value}</p>
+      <p className="ui-metric mt-4 leading-none sm:text-[28px]">{value}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {trend ? (
           <span

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { FormField, inputWithError } from "@/components/FormField";
 import { PageHeader } from "@/components/PageHeader";
 import { useToast } from "@/components/ToastProvider";
@@ -129,15 +129,20 @@ export default function NewAgreementPage() {
   };
 
   return (
-    <div className="animate-fade-in">
-      <Link href="/agreements" className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-navy-900">
+    <div className="animate-fade-in space-y-5">
+      <Link href="/agreements" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-400 transition-colors hover:text-ink-900">
         <ArrowLeft className="h-4 w-4" /> Back to agreements
       </Link>
       <PageHeader eyebrow="Operations" title="New agreement" description="Define scoped milestones. Their amounts must add up to the agreement total." />
 
       <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="grid gap-5 lg:grid-cols-[1.6fr_1fr]" noValidate>
-        <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-card">
-          <div className="grid gap-5 sm:grid-cols-2">
+        <div className="space-y-6 rounded-card border border-line bg-white p-6 shadow-card">
+          <div>
+            <p className="ui-kicker">Agreement details</p>
+            <p className="mt-1 text-xs text-ink-400">The supplier and financial terms recorded on this contract.</p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <FormField id="ag-supplier" label="Supplier" error={errors.supplier_id?.message} required className="sm:col-span-2">
               <select id="ag-supplier" className={inputWithError(!!errors.supplier_id)} {...register("supplier_id")}>
                 <option value="">Select a supplier</option>
@@ -170,24 +175,28 @@ export default function NewAgreementPage() {
             </FormField>
           </div>
 
-          <div className="border-t border-slate-100 pt-5">
-            <div className="flex items-center justify-between">
+          <div className="border-t border-line pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-navy-900">Milestones</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Each milestone is released separately from escrow.</p>
+                <p className="ui-kicker">Payment plan</p>
+                <h2 className="mt-1 text-sm font-semibold text-ink-900">Milestones</h2>
+                <p className="mt-0.5 text-xs text-ink-400">Each milestone is released separately from escrow.</p>
               </div>
-              <button type="button" onClick={() => append({ description: "", amount: "", due_date: "" })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-navy-900 hover:bg-slate-50">
-                <Plus className="h-3.5 w-3.5" /> Add milestone
+              <button type="button" onClick={() => append({ description: "", amount: "", due_date: "" })} className="ui-btn-secondary">
+                <Plus className="h-4 w-4" /> Add milestone
               </button>
             </div>
 
             <div className="mt-4 space-y-3">
               {fields.map((milestone, index) => (
-                <div key={milestone.id} className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-600">Milestone {index + 1}</span>
-                    <button type="button" onClick={() => remove(index)} className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove milestone ${index + 1}`}>
-                      <Trash2 className="h-3.5 w-3.5" />
+                <div key={milestone.id} className="rounded-card border border-line bg-slate-50/60 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-xs font-semibold text-ink-700">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-navy-900 text-2xs text-white">{index + 1}</span>
+                      Milestone {index + 1}
+                    </span>
+                    <button type="button" onClick={() => remove(index)} className="flex h-9 w-9 items-center justify-center rounded-control text-ink-400 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500" aria-label={`Remove milestone ${index + 1}`}>
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[1fr_120px_150px]">
@@ -201,30 +210,41 @@ export default function NewAgreementPage() {
               {errors.milestones?.root?.message ? <p className="text-xs text-rose-600">{errors.milestones.root.message}</p> : null}
             </div>
 
-            <div className="mt-4 flex items-center justify-between rounded-lg bg-accent-50 px-4 py-3 text-sm">
-              <span className="font-medium text-accent-700">Milestone total</span>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-accent-100 bg-accent-50 px-4 py-3">
+              <span className="text-sm font-medium text-accent-700">Milestone total</span>
               <div className="flex items-center gap-3">
-                <span className="font-display text-lg text-navy-900">{formatMoney(milestoneTotal, { decimals: 4 })}</span>
-                <button type="button" onClick={() => setValue("total_amount", milestoneTotal.toFixed(2), { shouldValidate: true })} className="text-xs font-semibold text-accent-600 hover:underline">Use as total</button>
+                <span className="font-display text-lg text-ink-900">{formatMoney(milestoneTotal, { decimals: 4 })}</span>
+                <button type="button" onClick={() => setValue("total_amount", milestoneTotal.toFixed(2), { shouldValidate: true })} className="text-xs font-semibold text-accent-700 underline underline-offset-2 hover:text-accent-600">Use as total</button>
               </div>
             </div>
           </div>
         </div>
 
         <aside className="space-y-5">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-card">
-            <h2 className="text-sm font-semibold text-navy-900">Agreement lifecycle</h2>
-            <ol className="mt-4 space-y-3 text-xs leading-relaxed text-slate-600">
-              <li><strong className="text-navy-900">1. Create</strong> — draft agreement with milestones.</li>
-              <li><strong className="text-navy-900">2. Submit</strong> — supplier is asked to accept.</li>
-              <li><strong className="text-navy-900">3. Fund</strong> — escrow is funded with a verified on-chain transaction.</li>
-              <li><strong className="text-navy-900">4. Release</strong> — each milestone is signed and released as delivered.</li>
+          <section className="ui-card p-5">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-accent-600" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-ink-900">Agreement lifecycle</h2>
+            </div>
+            <ol className="mt-4 space-y-3 text-xs leading-relaxed text-ink-500">
+              <li><strong className="text-ink-900">1. Create</strong> — draft agreement with milestones.</li>
+              <li><strong className="text-ink-900">2. Submit</strong> — supplier is asked to accept.</li>
+              <li><strong className="text-ink-900">3. Fund</strong> — escrow is funded with a verified on-chain transaction.</li>
+              <li><strong className="text-ink-900">4. Release</strong> — each milestone is signed and released as delivered.</li>
             </ol>
-          </div>
-          <button type="submit" disabled={submitting || !suppliers.length} className="inline-flex w-full items-center justify-center rounded-lg bg-accent-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 disabled:opacity-60">
+          </section>
+
+          <section className="rounded-card border border-accent-100 bg-accent-50 p-5">
+            <ShieldCheck className="h-5 w-5 text-accent-600" aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold text-ink-900">Verified before release</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">Milestone amounts are checked against the total before creation. Funding and release are recorded only after on-chain verification.</p>
+          </section>
+
+          <button type="submit" disabled={submitting || !suppliers.length} className="ui-btn-accent w-full">
+            {submitting ? <CheckCircle2 className="h-4 w-4 animate-pulse" /> : null}
             {submitting ? "Creating…" : "Create agreement"}
           </button>
-          {!suppliers.length ? <Link href="/suppliers" className="block text-center text-xs font-medium text-accent-600 hover:underline">Add a supplier first</Link> : null}
+          {!suppliers.length ? <Link href="/suppliers" className="block text-center text-xs font-medium text-accent-700 underline underline-offset-2">Add a supplier first</Link> : null}
         </aside>
       </form>
     </div>

@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { ShieldCheck } from "lucide-react";
 import { FormField, inputWithError } from "@/components/FormField";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/ToastProvider";
@@ -94,7 +95,11 @@ export function EditAgreementModal({ agreement, onClose, onSaved }: EditAgreemen
 
   return (
     <Modal open onClose={onClose} title="Edit agreement" description="Only draft agreements can be changed. Milestones stay unchanged." size="md">
-      <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="space-y-4" noValidate>
+      <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="space-y-5" noValidate>
+        <div className="flex items-start gap-2.5 rounded-control border border-accent-100 bg-accent-50 px-3 py-2.5 text-xs leading-relaxed text-accent-700">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p>Values below are saved with a PATCH request. Financial state, funding and on-chain events cannot be edited here.</p>
+        </div>
         <FormField id="edit-ag-title" label="Title" error={errors.title?.message} required>
           <input id="edit-ag-title" className={inputWithError(!!errors.title)} {...register("title")} />
         </FormField>
@@ -118,9 +123,9 @@ export function EditAgreementModal({ agreement, onClose, onSaved }: EditAgreemen
         <FormField id="edit-ag-approval" label="Approval requirements (JSON)" error={errors.approval_requirements?.message} hint='For example: {"approver": "finance"}'>
           <textarea id="edit-ag-approval" rows={3} className={`${inputWithError(!!errors.approval_requirements)} font-mono text-xs`} {...register("approval_requirements")} />
         </FormField>
-        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-          <button type="submit" disabled={isSubmitting} className="rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-700 disabled:opacity-50">
+        <div className="flex flex-col-reverse justify-end gap-2 border-t border-line pt-4 sm:flex-row">
+          <button type="button" onClick={onClose} className="ui-btn-secondary">Cancel</button>
+          <button type="submit" disabled={isSubmitting} className="ui-btn-accent">
             {isSubmitting ? "Saving…" : "Save changes"}
           </button>
         </div>
