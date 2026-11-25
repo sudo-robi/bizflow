@@ -70,37 +70,37 @@ export default function RegisterPage() {
       footer={
         <p>
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-accent-600 hover:text-accent-700">Sign in</Link>
+          <Link href="/login" className="font-semibold text-accent-700 hover:text-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2">Sign in</Link>
         </p>
       }
     >
       <form onSubmit={handleSubmit((values) => void onSubmit(values))} className="space-y-4" noValidate>
         <FormField id="full_name" label="Full name" error={errors.full_name?.message} required>
-          <input id="full_name" autoComplete="name" className={inputWithError(!!errors.full_name)} placeholder="Alex Morgan" {...register("full_name")} />
+          <input id="full_name" autoComplete="name" className={inputWithError(!!errors.full_name)} placeholder="Alex Morgan" aria-describedby={errors.full_name ? "full_name-error" : undefined} {...register("full_name")} />
         </FormField>
         <FormField id="email" label="Work email" error={errors.email?.message} required>
-          <input id="email" type="email" autoComplete="email" className={inputWithError(!!errors.email)} placeholder="alex@company.com" {...register("email")} />
+          <input id="email" type="email" autoComplete="email" className={inputWithError(!!errors.email)} placeholder="alex@company.com" aria-describedby={errors.email ? "email-error" : undefined} {...register("email")} />
         </FormField>
         <FormField id="business_name" label="Business name" error={errors.business_name?.message} hint="Optional — you can add this after signing in.">
-          <input id="business_name" autoComplete="organization" className={inputWithError(!!errors.business_name)} placeholder="Acme Trading Ltd" {...register("business_name")} />
+          <input id="business_name" autoComplete="organization" className={inputWithError(!!errors.business_name)} placeholder="Acme Trading Ltd" aria-describedby={errors.business_name ? "business_name-error" : "business_name-hint"} {...register("business_name")} />
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField id="password" label="Password" error={errors.password?.message} required>
-            <input id="password" type="password" autoComplete="new-password" className={inputWithError(!!errors.password)} {...register("password")} />
+            <input id="password" type="password" autoComplete="new-password" className={inputWithError(!!errors.password)} aria-describedby={errors.password ? "password-error" : undefined} {...register("password")} />
           </FormField>
           <FormField id="confirm" label="Confirm password" error={errors.confirm?.message} required>
-            <input id="confirm" type="password" autoComplete="new-password" className={inputWithError(!!errors.confirm)} {...register("confirm")} />
+            <input id="confirm" type="password" autoComplete="new-password" className={inputWithError(!!errors.confirm)} aria-describedby={errors.confirm ? "confirm-error" : undefined} {...register("confirm")} />
           </FormField>
         </div>
         <button
           type="submit"
           disabled={submitting}
-          className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-spring hover:bg-accent-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 disabled:opacity-60"
+          className="ui-btn-accent mt-2 min-h-11 w-full"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
           {submitting ? "Creating account…" : "Create account"}
         </button>
-        <p className="text-center text-xs leading-relaxed text-slate-400">
+        <p className="text-center text-xs leading-relaxed text-ink-400">
           By continuing you agree to use this platform only on Stellar Testnet.
         </p>
       </form>

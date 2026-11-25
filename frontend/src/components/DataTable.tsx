@@ -37,7 +37,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   if (loading) {
     return (
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card">
+      <div className="ui-card overflow-hidden">
         <div className="flex gap-6 border-b border-slate-100 bg-slate-50/50 px-6 py-3.5">
           {columns.map((column) => (
             <Skeleton key={column.key} className="h-3 flex-1" />
@@ -56,23 +56,23 @@ export function DataTable<T>({
 
   if (!rows.length) {
     return (
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card">
+      <div className="ui-card overflow-hidden">
         <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card">
+    <div className="ui-card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/70">
+            <tr className="border-b border-line bg-slate-50/60">
               {columns.map((column) => (
                 <th
                   key={column.key}
                   scope="col"
-                  className={`whitespace-nowrap px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 ${column.headerClassName ?? ""}`}
+                  className={`ui-th ${column.headerClassName ?? ""}`}
                 >
                   {column.header}
                 </th>
@@ -101,7 +101,7 @@ export function DataTable<T>({
                 }`}
               >
                 {columns.map((column) => (
-                  <td key={column.key} className={`px-5 ${dense ? "py-2.5" : "py-4"} text-sm text-slate-700 ${column.className ?? ""}`}>
+                  <td key={column.key} className={`ui-td ${dense ? "py-2.5" : ""} ${column.className ?? ""}`}>
                     {column.render ? column.render(row) : String((row as Record<string, unknown>)[column.key] ?? "—")}
                   </td>
                 ))}

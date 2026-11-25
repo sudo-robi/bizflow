@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, FileCheck2, Loader2, Wallet } from "lucide-react";
+import { Check, CheckCircle2, FileCheck2, Loader2, ShieldCheck, Wallet } from "lucide-react";
 import { DataTable, type Column } from "@/components/DataTable";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader, SectionCard } from "@/components/PageHeader";
@@ -23,6 +23,7 @@ const STAGE_LABELS: Record<string, string> = {
   signing: "Waiting for Freighter",
   submitting: "Submitting to network",
 };
+const STAGE_KEYS = ["connecting", "preparing", "review", "signing", "submitting"] as const;
 
 function unwrapPayments(value: unknown): Payment[] {
   if (Array.isArray(value)) return value as Payment[];
@@ -103,12 +104,30 @@ export default function ApprovalsPage() {
     {
       key: "id",
       header: "Payment",
-      render: (row) => <span className="font-mono text-xs font-medium text-navy-900">{truncateAddress(row.id, 8, 4)}</span>,
+      render: (row) => (
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-control bg-accent-50 text-accent-600"><FileCheck2 className="h-4 w-4" aria-hidden="true" /></span>
+          <span className="font-mono text-xs font-semibold text-ink-900">{truncateAddress(row.id, 8, 4)}</span>
+        </div>
+      ),
     },
-    { key: "amount", header: "Amount", render: (row) => <span className="font-medium text-navy-900">{formatMoney(row.amount, { decimals: 4 })} <span className="text-xs text-slate-400">{row.asset_code || "XLM"}</span></span> },
-    { key: "invoice", header: "Invoice", render: (row) => row.invoice_id ? <Link href={`/invoices/${row.invoice_id}`} className="text-accent-600 hover:underline">View invoice</Link> : <span className="text-slate-400">—</span> },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) => (
+        <span className="whitespace-nowrap font-semibold text-ink-900">
+          {formatMoney(row.amount, { decimals: 4 })}
+          <span className="ml-1.5 text-xs font-medium text-ink-400">{row.asset_code || "XLM"}</span>
+        </span>
+      ),
+    },
+    {
+      key: "invoice",
+      header: "Invoice",
+      render: (row) => row.invoice_id ? <Link href={`/invoices/${row.invoice_id}`} className="font-medium text-accent-700 hover:underline">View invoice</Link> : <span className="text-ink-400">—</span>,
+    },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
-    { key: "created_at", header: "Created", render: (row) => <span className="text-slate-500">{formatDate(row.created_at)}</span> },
+    { key: "created_at", header: "Created", render: (row) => <span className="whitespace-nowrap text-ink-500">{formatDate(row.created_at)}</span> },
     {
       key: "action",
       header: "",
@@ -119,25 +138,48 @@ export default function ApprovalsPage() {
           type="button"
           onClick={(event) => { event.stopPropagation(); void beginApproval(row); }}
           disabled={!!busyId}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-accent-700 disabled:opacity-50"
+          className="ui-btn-accent whitespace-nowrap"
         >
-          {busyId === row.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+          {busyId === row.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           {busyId === row.id ? stage || "Working…" : "Review & sign"}
         </button>
       ),
     },
   ];
 
+  const currentStageIndex = STAGE_KEYS.findIndex((key) => STAGE_LABELS[key] === stage);
+
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in space-y-5">
       <PageHeader
         eyebrow="Operations"
         title="Payment approvals"
         description="Every outgoing payment requires a human review. Inspect the full transaction before signing in Freighter."
       />
 
-      {loadError ? <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
-      {error ? <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+      <div className="flex items-start gap-3 rounded-card border border-accent-200 bg-accent-50 px-4 py-3 text-sm text-accent-700">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>Prepared payments stay in this queue until a reviewer signs and submits them. A signature alone does not settle an invoice.</p>
+      </div>
+
+      {loadError ? <div role="alert" className="ui-card border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div> : null}
+      {error ? <div role="alert" className="ui-card border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+
+      {busyId && stage ? (
+        <div className="ui-card p-4" role="status" aria-live="polite">
+          <p className="ui-kicker">Approval progress · {stage}</p>
+          <ol className="mt-3 grid gap-2 sm:grid-cols-5">
+            {STAGE_KEYS.map((key, index) => (
+              <li key={key} className={`flex items-center gap-2 rounded-control border px-2.5 py-2 text-2xs font-medium ${index < currentStageIndex ? "border-accent-200 bg-accent-50 text-accent-700" : index === currentStageIndex ? "border-navy-800 bg-navy-900 text-white" : "border-line bg-slate-50 text-ink-400"}`}>
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[9px]">
+                  {index < currentStageIndex ? <Check className="h-3 w-3" /> : index + 1}
+                </span>
+                <span className="truncate">{STAGE_LABELS[key]}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
 
       <DataTable
         columns={columns}
@@ -149,27 +191,25 @@ export default function ApprovalsPage() {
         emptyDescription="Prepared payments will appear here until a reviewer signs and submits them."
       />
 
-      <div className="mt-5">
-        <SectionCard title="How approval works">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              { icon: FileCheck2, title: "1. Review", body: "Check amount, asset, destination, memo, fee and network in the confirmation dialog." },
-              { icon: Wallet, title: "2. Sign locally", body: "Freighter signs the real backend-prepared XDR. No private keys are sent anywhere." },
-              { icon: CheckCircle2, title: "3. Verify", body: "The backend submits to Horizon and independently verifies the ledger result before settling the invoice." },
-            ].map((step) => {
-              const Icon = step.icon;
-              return (
-                <div key={step.title} className="rounded-lg border border-slate-100 bg-slate-50/60 p-4">
-                  <Icon className="h-5 w-5 text-accent-600" />
-                  <p className="mt-3 text-sm font-semibold text-navy-900">{step.title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">{step.body}</p>
-                </div>
-              );
-            })}
-          </div>
-          {!loading && !payments.length ? <EmptyState compact title="Approval queue is clear" description="New prepared payments will show up in the table above." /> : null}
-        </SectionCard>
-      </div>
+      <SectionCard title="How approval works" description="Review, sign locally, then independent verification">
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[
+            { icon: FileCheck2, title: "1. Review", body: "Check amount, asset, destination, memo, fee and network in the confirmation dialog." },
+            { icon: Wallet, title: "2. Sign locally", body: "Freighter signs the real backend-prepared XDR. No private keys are sent anywhere." },
+            { icon: CheckCircle2, title: "3. Verify", body: "The backend submits to Horizon and independently verifies the ledger result before settling the invoice." },
+          ].map((step) => {
+            const Icon = step.icon;
+            return (
+              <div key={step.title} className="rounded-card border border-line bg-slate-50/60 p-4">
+                <Icon className="h-5 w-5 text-accent-600" aria-hidden="true" />
+                <p className="mt-3 text-sm font-semibold text-ink-900">{step.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-500">{step.body}</p>
+              </div>
+            );
+          })}
+        </div>
+        {!loading && !payments.length ? <div className="mt-5 border-t border-line pt-5"><EmptyState compact title="Approval queue is clear" description="New prepared payments will show up in the table above." /></div> : null}
+      </SectionCard>
 
       <SignTransactionModal
         open={!!details}

@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Link2, Loader2, RefreshCw, ShieldCheck, Unplug, Wallet as WalletIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Link2,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Unplug,
+  Wallet as WalletIcon,
+} from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader, SectionCard } from "@/components/PageHeader";
 import { useToast } from "@/components/ToastProvider";
@@ -27,6 +38,25 @@ interface ConnectedWallet {
   network?: string;
   [key: string]: unknown;
 }
+
+/** Every value here comes from a Freighter call or a backend response. */
+function connectionState(installed: boolean | null, address: string | null, isTestnet: boolean) {
+  if (installed === null) return { label: "Detecting Freighter…", tone: "border-line bg-slate-50 text-ink-500", icon: Loader2 };
+  if (!installed) return { label: "Freighter not installed", tone: "border-line bg-slate-50 text-ink-500", icon: AlertTriangle };
+  if (!address) return { label: "Wallet not connected", tone: "border-amber-200 bg-amber-50 text-amber-700", icon: AlertTriangle };
+  if (!isTestnet) return { label: "Wrong network", tone: "border-amber-200 bg-amber-50 text-amber-700", icon: AlertTriangle };
+  return { label: "Ready to sign on Testnet", tone: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: CheckCircle2 };
+}
+
+const STATE_GUIDE = [
+  { label: "Wallet not connected", note: "Connect Freighter to share your public address." },
+  { label: "Wrong network", note: "Switch Freighter to Testnet before any signature is requested." },
+  { label: "Awaiting signature", note: "Review the exact amount, destination and memo in the dialog." },
+  { label: "Submitted", note: "The signed XDR was sent by the backend to the network." },
+  { label: "Pending confirmation", note: "Horizon has not yet returned a confirmed ledger result." },
+  { label: "Confirmed", note: "The backend independently verified the ledger record." },
+  { label: "Failed", note: "The transaction did not settle. No balance or receipt is credited." },
+];
 
 export default function WalletPage() {
   const toast = useToast();
@@ -133,54 +163,62 @@ export default function WalletPage() {
   };
 
   const isTestnet = network?.networkPassphrase === "Test SDF Network ; September 2015" || /test\s*net/i.test(network?.network || "");
+  const state = connectionState(installed, address, isTestnet);
+  const StateIcon = state.icon;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in space-y-5">
       <PageHeader
         eyebrow="Operations"
         title="Wallet"
         description="Connect Freighter to sign payments. BizFlow only ever reads your public address — never a private key."
         actions={
-          <button onClick={() => void refreshWalletState()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-navy-900 hover:bg-slate-50">
+          <button onClick={() => void refreshWalletState()} className="ui-btn-secondary">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         }
       />
 
+      <div className="flex items-start gap-3 rounded-card border border-accent-200 bg-accent-50 px-4 py-3 text-sm text-accent-700">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>Balances are public Testnet data. Signing is requested only while Freighter is on Testnet, for the exact transaction you review.</p>
+      </div>
+
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-5">
-          <SectionCard title="Freighter connection">
+          <SectionCard title="Freighter connection" description="Detected from the browser extension, not assumed">
             {installed === null ? (
-              <div className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Detecting Freighter…</div>
+              <div className="flex items-center gap-2 py-8 text-sm text-ink-400"><Loader2 className="h-4 w-4 animate-spin" /> Detecting Freighter…</div>
             ) : !installed ? (
               <EmptyState
                 icon={<WalletIcon className="h-6 w-6" />}
                 title="Freighter is not installed"
                 description="Install the Freighter browser extension to sign Stellar transactions securely from this workspace."
                 action={
-                  <a href="https://www.freighter.app/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-4 py-2 text-sm font-semibold text-white hover:bg-accent-700">
+                  <a href="https://www.freighter.app/" target="_blank" rel="noopener noreferrer" className="ui-btn-accent">
                     Get Freighter <ExternalLink className="h-4 w-4" />
                   </a>
                 }
               />
             ) : (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                <div className={`flex flex-wrap items-center justify-between gap-4 rounded-card border p-4 ${state.tone}`}>
                   <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-900 text-white"><WalletIcon className="h-5 w-5" /></span>
+                    <span className="flex h-10 w-10 items-center justify-center rounded-control bg-navy-900 text-white"><WalletIcon className="h-5 w-5" aria-hidden="true" /></span>
                     <div>
-                      <p className="text-xs text-slate-500">Connection status</p>
-                      <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-navy-900">
-                        {address ? <><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Connected</> : "Not connected"}
+                      <p className="ui-kicker">Connection status</p>
+                      <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold">
+                        <StateIcon className={`h-4 w-4 ${busy === "connect" ? "animate-spin" : ""}`} aria-hidden="true" />
+                        {state.label}
                       </p>
                     </div>
                   </div>
                   {address ? (
-                    <button onClick={() => void onDisconnect()} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50">
+                    <button onClick={() => void onDisconnect()} disabled={!!busy} className="ui-btn-secondary text-ink-600">
                       <Unplug className="h-4 w-4" /> Disconnect
                     </button>
                   ) : (
-                    <button onClick={() => void onConnect()} disabled={!!busy} className="inline-flex items-center gap-2 rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-700 disabled:opacity-50">
+                    <button onClick={() => void onConnect()} disabled={!!busy} className="ui-btn-accent">
                       {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
                       {busy === "connect" ? "Connecting…" : "Connect Freighter"}
                     </button>
@@ -188,20 +226,20 @@ export default function WalletPage() {
                 </div>
 
                 {address ? (
-                  <div className="rounded-xl border border-slate-100 p-4">
-                    <p className="text-xs font-medium text-slate-500">Public address</p>
+                  <div className="rounded-card border border-line p-4">
+                    <p className="ui-kicker">Public address</p>
                     <div className="mt-2 flex items-start gap-3">
-                      <p className="min-w-0 flex-1 break-all font-mono text-sm text-navy-900">{address}</p>
+                      <p className="min-w-0 flex-1 break-all font-mono text-sm text-ink-900">{address}</p>
                       <button
                         type="button"
                         onClick={() => { void navigator.clipboard.writeText(address); toast.success("Address copied"); }}
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-navy-900"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-ink-400 transition hover:bg-slate-100 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
                         aria-label="Copy public address"
                       >
                         <Copy className="h-4 w-4" />
                       </button>
                     </div>
-                    <a href={explorerUrl(address)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-accent-600 hover:underline">
+                    <a href={explorerUrl(address)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-accent-700 hover:underline">
                       View account on Stellar Expert <ExternalLink className="h-3 w-3" />
                     </a>
                   </div>
@@ -212,20 +250,20 @@ export default function WalletPage() {
 
           <SectionCard title="Balances" description="Read from Horizon Testnet (public data)">
             {balanceLoading ? (
-              <div className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading balances…</div>
+              <div className="flex items-center gap-2 py-8 text-sm text-ink-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading balances…</div>
             ) : balanceError ? (
-              <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{balanceError}</div>
+              <div role="alert" className="ui-card border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{balanceError}</div>
             ) : !address ? (
               <EmptyState compact title="No wallet connected" description="Connect Freighter to view Testnet balances." />
             ) : balances.length ? (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-line">
                 {balances.map((balance, index) => (
                   <li key={`${balance.asset}-${index}`} className="flex items-center justify-between gap-4 py-3.5">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-navy-900">{balance.asset}</p>
-                      {balance.issuer ? <p className="truncate font-mono text-[11px] text-slate-400">{truncateAddress(balance.issuer)}</p> : null}
+                      <p className="text-sm font-semibold text-ink-900">{balance.asset}</p>
+                      {balance.issuer ? <p className="truncate font-mono text-2xs text-ink-400">{truncateAddress(balance.issuer)}</p> : <p className="text-2xs text-ink-400">Native asset</p>}
                     </div>
-                    <p className="font-display text-lg text-navy-900">{formatStellarAmount(balance.balance)}</p>
+                    <p className="font-display text-lg text-ink-900">{formatStellarAmount(balance.balance)}</p>
                   </li>
                 ))}
               </ul>
@@ -236,10 +274,10 @@ export default function WalletPage() {
         </div>
 
         <div className="space-y-5">
-          <SectionCard title="Network check">
-            <div className={`rounded-xl border p-4 ${isTestnet ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+          <SectionCard title="Network check" description="Verified through Freighter before signing">
+            <div className={`rounded-card border p-4 ${isTestnet ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
               <div className="flex items-start gap-3">
-                {isTestnet ? <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />}
+                {isTestnet ? <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />}
                 <div>
                   <p className={`text-sm font-semibold ${isTestnet ? "text-emerald-900" : "text-amber-900"}`}>
                     {isTestnet ? "Testnet verified" : network ? `Wrong network: ${network.network}` : "Network unknown"}
@@ -252,26 +290,26 @@ export default function WalletPage() {
                 </div>
               </div>
             </div>
-            {network ? <p className="mt-3 break-all font-mono text-[11px] text-slate-500">{network.networkPassphrase}</p> : null}
+            {network ? <p className="mt-3 break-all font-mono text-2xs text-ink-500">{network.networkPassphrase}</p> : null}
             {networkError ? <p role="alert" className="mt-3 text-xs text-rose-600">{networkError}</p> : null}
-            <button onClick={() => void onCheckNetwork()} disabled={!!busy || !installed} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-navy-900 hover:bg-slate-50 disabled:opacity-50">
-              {busy === "network" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            <button onClick={() => void onCheckNetwork()} disabled={!!busy || !installed} className="ui-btn-secondary mt-4">
+              {busy === "network" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Check network again
             </button>
           </SectionCard>
 
           <SectionCard title="Registered addresses" description="Public keys saved for this business">
             {walletsLoading ? (
-              <p className="py-6 text-center text-xs text-slate-400">Loading…</p>
+              <p className="py-6 text-center text-2xs text-ink-400">Loading…</p>
             ) : wallets?.length ? (
               <ul className="space-y-3">
                 {wallets.map((wallet) => (
-                  <li key={wallet.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 p-3">
+                  <li key={wallet.id} className="flex items-center justify-between gap-3 rounded-control border border-line p-3">
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-xs text-navy-900">{truncateAddress(wallet.public_key, 10, 8)}</p>
-                      <p className="mt-0.5 text-[11px] uppercase text-slate-400">{wallet.network || "testnet"}</p>
+                      <p className="truncate font-mono text-xs text-ink-900">{truncateAddress(wallet.public_key, 10, 8)}</p>
+                      <p className="mt-0.5 text-2xs uppercase tracking-wider text-ink-400">{wallet.network || "testnet"}</p>
                     </div>
-                    <button onClick={() => void onDisconnect(wallet)} disabled={!!busy} className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label="Remove registered address">
+                    <button onClick={() => void onDisconnect(wallet)} disabled={!!busy} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-ink-400 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500" aria-label="Remove registered address">
                       <Unplug className="h-4 w-4" />
                     </button>
                   </li>
@@ -282,10 +320,21 @@ export default function WalletPage() {
             )}
           </SectionCard>
 
-          <div className="rounded-xl border border-accent-100 bg-accent-50 p-5">
-            <ShieldCheck className="h-5 w-5 text-accent-600" />
-            <p className="mt-3 text-sm font-semibold text-navy-900">Your keys never leave Freighter</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+          <SectionCard title="Status vocabulary" description="How wallet and ledger states are reported">
+            <ul className="space-y-2.5">
+              {STATE_GUIDE.map((item) => (
+                <li key={item.label} className="flex items-start gap-2.5 text-xs leading-relaxed">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent-500" aria-hidden="true" />
+                  <span><strong className="font-semibold text-ink-900">{item.label}</strong><span className="text-ink-400"> — {item.note}</span></span>
+                </li>
+              ))}
+            </ul>
+          </SectionCard>
+
+          <div className="rounded-card border border-accent-100 bg-accent-50 p-5">
+            <ShieldCheck className="h-5 w-5 text-accent-600" aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold text-ink-900">Your keys never leave Freighter</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">
               We request a signature for a specific transaction XDR. We never ask for seed phrases, private keys or signing authority beyond the transaction you explicitly approve.
             </p>
           </div>

@@ -3,12 +3,12 @@ import { humanize } from "@/lib/format";
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "purple";
 
 const TONES: Record<Tone, string> = {
-  neutral: "bg-slate-100 text-slate-700 ring-slate-200",
-  success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  warning: "bg-amber-50 text-amber-700 ring-amber-200",
-  danger: "bg-rose-50 text-rose-700 ring-rose-200",
+  neutral: "bg-slate-100 text-ink-500 ring-slate-200",
+  success: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  warning: "bg-amber-50 text-amber-800 ring-amber-200",
+  danger: "bg-rose-50 text-rose-800 ring-rose-200",
   info: "bg-accent-50 text-accent-700 ring-accent-200",
-  purple: "bg-violet-50 text-violet-700 ring-violet-200",
+  purple: "bg-indigo-50 text-indigo-700 ring-indigo-200",
 };
 
 const STATUS_TONE: Record<string, Tone> = {
@@ -56,7 +56,7 @@ export function StatusBadge({ status, label, dot = true, className = "" }: Statu
   const tone = TONES[toneForStatus(status)];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${tone} ${className}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-control px-2 py-1 text-xs font-semibold ring-1 ring-inset ${tone} ${className}`}
     >
       {dot ? <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" /> : null}
       {label ?? humanize(status)}
