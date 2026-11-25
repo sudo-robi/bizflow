@@ -10,7 +10,7 @@ from app.database import get_db
 from app.errors import conflict, not_found
 from app.models import WalletConnection
 from app.schemas import WalletCreate, WalletOut
-from app.security import get_business_membership
+from app.security import get_business_membership, require_roles
 from app.services.notifications import audit
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/wallets", tags=["wallets"])
 
 @router.get("", response_model=list[WalletOut])
 def list_wallets(
-    membership=Depends(get_business_membership), db: Session = Depends(get_db)
+    membership=Depends(require_roles("finance_manager")), db: Session = Depends(get_db)
 ):
     return db.scalars(
         select(WalletConnection)
@@ -30,7 +30,7 @@ def list_wallets(
 @router.post("", response_model=WalletOut, status_code=201)
 def connect_wallet(
     payload: WalletCreate,
-    membership=Depends(get_business_membership),
+    membership=Depends(require_roles()),
     db: Session = Depends(get_db),
 ):
     existing = db.scalar(
@@ -61,7 +61,7 @@ def connect_wallet(
 @router.delete("/{wallet_id}")
 def disconnect_wallet(
     wallet_id: str,
-    membership=Depends(get_business_membership),
+    membership=Depends(require_roles()),
     db: Session = Depends(get_db),
 ):
     wallet = db.get(WalletConnection, wallet_id)

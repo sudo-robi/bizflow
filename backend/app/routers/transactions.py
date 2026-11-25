@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,7 @@ def list_transactions(
 
 @router.get("/{tx_hash}")
 def get_transaction(
-    tx_hash: str,
+    tx_hash: str = Path(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"),
     membership=Depends(get_business_membership),
     db: Session = Depends(get_db),
 ):
@@ -139,7 +139,10 @@ def verify_transaction(
 
 
 @public_router.get("/{tx_hash}", response_model=PublicReceiptOut)
-def public_receipt(tx_hash: str, db: Session = Depends(get_db)):
+def public_receipt(
+    tx_hash: str = Path(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$"),
+    db: Session = Depends(get_db),
+):
     """Limited public data only: no internal notes, emails or user identifiers."""
     record = db.scalar(select(BlockchainTransaction).where(BlockchainTransaction.hash == tx_hash))
     if record is None:

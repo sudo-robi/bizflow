@@ -27,7 +27,7 @@ Set at minimum:
 | `STELLAR_SOROBAN_RPC_URL` | `https://soroban-testnet.stellar.org` |
 | `STELLAR_ESCROW_CONTRACT_ID` | The **real** deployed Testnet contract id |
 | `CORS_ORIGINS` | Comma-separated frontend origins |
-| `NEXT_PUBLIC_API_URL` | Browser-visible backend base URL |
+| `NEXT_PUBLIC_API_BASE_URL` | Browser-visible backend base URL |
 
 Generate a secret with:
 
@@ -64,7 +64,7 @@ make setup-frontend
 make run-frontend
 ```
 
-The frontend calls the backend at `NEXT_PUBLIC_API_URL`. Cookies are httpOnly, so the
+The frontend calls the backend at `NEXT_PUBLIC_API_BASE_URL`. Cookies are httpOnly, so the
 browser origin and API URL must be compatible with CORS/`credentials: include`.
 
 ## Database migrations

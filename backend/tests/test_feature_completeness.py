@@ -362,7 +362,7 @@ def test_escrow_refund_prepare_and_verified_submit(client, owner, supplier_actor
     monkeypatch.setattr(stellar, "transaction_hash", lambda xdr: REFUND_HASH)
     monkeypatch.setattr(
         stellar, "submit_soroban",
-        lambda xdr, contract_id=None, function_name=None: stellar.ChainResult(
+        lambda xdr, contract_id=None, function_name=None, **kwargs: stellar.ChainResult(
             hash=REFUND_HASH, status="SUCCESS", confirmed=True, successful=True, ledger=11,
         ),
     )

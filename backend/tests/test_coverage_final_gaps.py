@@ -33,8 +33,13 @@ def test_production_config_requires_strong_secret_and_database():
             jwt_secret="x" * 32, environment="staging", use_sqlite=False,
             database_url="postgresql+psycopg2://bizflow:bizflow@localhost:5432/bizflow",
         )
-    weak = Settings(jwt_secret="", environment="development")
-    assert weak.jwt_secret == "dev-only-jwt-secret-change-me"
+    # No publicly known fallback key exists. An empty secret is either rejected
+    # or replaced by an ephemeral random key for the local SQLite test fallback.
+    weak = Settings(jwt_secret="", environment="development", use_sqlite=True)
+    assert len(weak.jwt_secret) >= 32
+    assert weak.jwt_secret != "dev-only-jwt-secret-change-me"
+    with pytest.raises(ValueError, match="at least 32 characters"):
+        Settings(jwt_secret="", environment="development", use_sqlite=False)
 
 
 # --- utility / security helpers --------------------------------------------

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from functools import lru_cache
 
 from pydantic import Field, field_validator, model_validator
@@ -23,9 +24,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://bizflow:bizflow@localhost:5432/bizflow"
     use_sqlite: bool = False
     sqlite_path: str = "bizflow.sqlite3"
+    # Documented alias used by .env.example; mapped to sqlite_path below.
+    sqlite_url: str | None = None
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+    # Documented alias used by .env.example; takes precedence when supplied.
+    access_token_expire_minutes: int | None = None
     session_cookie_name: str = "bizflow_session"
     session_cookie_secure: bool = False
 
@@ -43,6 +48,12 @@ class Settings(BaseSettings):
     soroban_poll_attempts: int = 20
     prepare_expires_minutes: int = 10
     request_timeout_seconds: float = 30.0
+    # Read authoritative Soroban state after every settled escrow operation.
+    # Disable only in unit suites that stub the chain boundary at the event layer.
+    enforce_escrow_state_verification: bool = True
+    # Require strict Origin/Referer checks for cookie-authenticated mutations.
+    enforce_csrf_origin_check: bool = True
+    max_request_body_bytes: int = 8 * 1024 * 1024  # permits the 5 MB attachment limit
 
     @field_validator("rate_limit_per_minute")
     @classmethod
@@ -63,6 +74,17 @@ class Settings(BaseSettings):
         if passphrase != TESTNET_PASSPHRASE:
             raise ValueError("Unsupported Stellar network passphrase; testnet is required")
 
+        if self.access_token_expire_minutes is not None:
+            if self.access_token_expire_minutes < 1:
+                raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be positive")
+            self.jwt_expire_minutes = self.access_token_expire_minutes
+        # An explicit SQLITE_PATH always wins; SQLITE_URL is only a documented
+        # alias for operators who used the old variable name.
+        if self.sqlite_url and self.sqlite_path == "bizflow.sqlite3":
+            raw = self.sqlite_url.split("sqlite:///")[-1]
+            if raw and raw != ":memory:":
+                self.sqlite_path = raw
+
         production = self.environment.strip().lower() in {"production", "prod", "staging"}
         weak_secret = len(self.jwt_secret.strip()) < 32
         if production:
@@ -72,10 +94,16 @@ class Settings(BaseSettings):
             if "bizflow:bizflow@localhost" in self.database_url and not self.use_sqlite:
                 raise ValueError("DATABASE_URL must be configured in production")
         elif weak_secret:
-            # Local/demo fallback only. Never accept an unset secret in production.
-            if not self.jwt_secret:
-                self.jwt_secret = "dev-only-jwt-secret-change-me"
-            logger.warning("JWT_SECRET is unset or weak; using a development-only secret")
+            # No publicly known fallback key exists. The only generated secret is
+            # ephemeral and restricted to the local SQLite test fallback.
+            if not self.jwt_secret and self.use_sqlite:
+                self.jwt_secret = secrets.token_urlsafe(48)
+                logger.warning(
+                    "JWT_SECRET is unset; generated an ephemeral local SQLite secret "
+                    "(sessions will not survive a restart)"
+                )
+            else:
+                raise ValueError("JWT_SECRET must be set and at least 32 characters")
         return self
 
     @property

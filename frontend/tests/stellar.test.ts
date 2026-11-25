@@ -251,12 +251,12 @@ describe("getWalletAddress / getNetwork / assertTestnet", () => {
     await expect(getNetwork()).rejects.toMatchObject({ code: "ERROR", message: "crashed" });
   });
 
-  it("accepts testnet via exact passphrase, network name and passphrase pattern", async () => {
+  it("accepts testnet only by exact passphrase, not by network name", async () => {
     await expect(assertTestnet()).resolves.toMatchObject({ network: "Testnet" });
     mockedGetNetwork.mockResolvedValueOnce({ network: "Stellar TESTNET", networkPassphrase: "other" });
-    await expect(assertTestnet()).resolves.toMatchObject({ network: "Stellar TESTNET" });
+    await expect(assertTestnet()).rejects.toMatchObject({ code: "NETWORK_MISMATCH" });
     mockedGetNetwork.mockResolvedValueOnce({ network: "custom", networkPassphrase: "Standalone Test Net" });
-    await expect(assertTestnet()).resolves.toBeDefined();
+    await expect(assertTestnet()).rejects.toMatchObject({ code: "NETWORK_MISMATCH" });
   });
 
   it("rejects non-testnet networks with a NETWORK_MISMATCH error", async () => {

@@ -520,6 +520,14 @@ def cancel_agreement(
     agreement = _agreement(db, agreement_id, membership.business_id)
     if agreement.status in ("completed", "cancelled"):
         raise conflict("Agreement is already final", "AGREEMENT_STATE")
+    # Cancellation is off-chain only. A funded agreement still holds escrowed
+    # value on-chain; cancelling it in the database would strand those funds and
+    # contradict chain state. Require a verified refund instead.
+    if agreement.fund_transaction_hash and agreement.status != "refunded":
+        raise conflict(
+            "A funded agreement cannot be cancelled; use the verified refund flow",
+            "ESCROW_FUNDS_OUTSTANDING",
+        )
     released = db.scalar(
         select(AgreementMilestone).where(
             AgreementMilestone.agreement_id == agreement.id,

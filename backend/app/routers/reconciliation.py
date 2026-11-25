@@ -35,6 +35,7 @@ def reconcile_agreement(
     report = reconciliation.reconcile_agreement(
         db, agreement, source_account=funding.source_account if funding else None
     )
+    record = reconciliation.persist_report(db, report, membership.business_id)
     audit(
         db,
         membership.business_id,
@@ -42,7 +43,14 @@ def reconcile_agreement(
         "agreement.reconciled",
         "agreement",
         agreement.id,
-        {"discrepancies": list(report.discrepancies), "consistent": not report.discrepancies},
+        {
+            "discrepancies": list(report.discrepancies),
+            "consistent": not report.discrepancies,
+            "reconciliation_record_id": record.id,
+        },
     )
     db.commit()
-    return report.as_dict()
+    result = report.as_dict()
+    result["reconciliation_record_id"] = record.id
+    result["resolution_status"] = record.resolution_status
+    return result

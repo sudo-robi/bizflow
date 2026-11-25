@@ -270,11 +270,12 @@ def verify_soroban_release(
     contract_id: str,
     agreement_id: str,
     milestone_index: int,
+    amount: Decimal | None = None,
 ) -> VerificationResult:
-    """Require SUCCESS status and a matching `released` contract event."""
+    """Require SUCCESS status and a `released` event for the exact milestone amount."""
     return verify_soroban_event(
         tx_hash, contract_id, "released",
-        agreement_id=agreement_id, milestone_index=milestone_index,
+        agreement_id=agreement_id, milestone_index=milestone_index, amount=amount,
     )
 
 

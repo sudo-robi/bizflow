@@ -15,11 +15,21 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column() -> bool:
+    return any(
+        column["name"] == "onchain_agreement_id"
+        for column in sa.inspect(op.get_bind()).get_columns("payment_agreements")
+    )
+
+
 def upgrade() -> None:
+    if _has_column():
+        return  # forward-safe for partially applied upgrades
     op.add_column(
         "payment_agreements", sa.Column("onchain_agreement_id", sa.Integer(), nullable=True)
     )
 
 
 def downgrade() -> None:
-    op.drop_column("payment_agreements", "onchain_agreement_id")
+    if _has_column():
+        op.drop_column("payment_agreements", "onchain_agreement_id")

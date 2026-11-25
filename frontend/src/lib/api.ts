@@ -54,6 +54,17 @@ export interface RequestOptions extends Omit<RequestInit, "body"> {
   public?: boolean;
 }
 
+/** Double-submit CSRF token set by the backend on login/register. */
+function csrfToken(): string | null {
+  try {
+    if (typeof document === "undefined") return null;
+    const entry = document.cookie.split("; ").find((item) => item.startsWith("bizflow_csrf="));
+    return entry ? decodeURIComponent(entry.slice("bizflow_csrf=".length)) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, public: isPublic, headers: customHeaders, ...rest } = options;
   const headers = new Headers(customHeaders);
@@ -62,6 +73,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
   if (!isPublic && currentBusinessId) {
     headers.set("X-Business-ID", currentBusinessId);
+  }
+  const method = (rest.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const token = csrfToken();
+    if (token) headers.set("X-CSRF-Token", token);
   }
 
   let response: Response;
