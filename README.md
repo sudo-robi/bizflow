@@ -1,5 +1,7 @@
 # BizFlow
 
+**Live demo:** https://bizflow-dun.vercel.app
+
 **Business payments, supplier management and programmable settlement on Stellar.**
 
 BizFlow is a B2B fintech application for managing suppliers, invoices, payment
