@@ -27,10 +27,20 @@ from tests.conftest import TestSession, create_invoice, create_supplier, registe
 CONTRACT_ID = get_settings().stellar_escrow_contract_id
 
 
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """Event-layer stubs replace chain reads in this unit suite."""
+    from app.services import reconciliation
+
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
+
+
 def _set_onchain_id(agreement_id: str, value: int = 1) -> None:
     db = TestSession()
     try:
-        db.get(models.PaymentAgreement, agreement_id).onchain_agreement_id = value
+        row = db.get(models.PaymentAgreement, agreement_id)
+        row.onchain_agreement_id = value
+        row.escrow_contract_id = CONTRACT_ID
         db.commit()
     finally:
         db.close()
@@ -42,6 +52,7 @@ def _activate_status(agreement_id: str) -> None:
         agreement = db.get(models.PaymentAgreement, agreement_id)
         agreement.status = "active"
         agreement.onchain_agreement_id = 1
+        agreement.escrow_contract_id = CONTRACT_ID
         db.commit()
     finally:
         db.close()

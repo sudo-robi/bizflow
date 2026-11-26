@@ -7,6 +7,14 @@ All business-scoped endpoints require headers:
 Base URL: `/api/v1`. All request/response bodies are JSON. Monetary amounts are strings
 (e.g. `"1250.50"`) to preserve decimal precision. Dates are ISO-8601 strings.
 
+Cookie-authenticated state-changing requests must also send the double-submit CSRF
+header `X-CSRF-Token` with the value of the readable `bizflow_csrf` cookie issued at
+login/register. Missing, invalid or cross-origin tokens return `403` with code
+`CSRF_TOKEN_MISSING`, `CSRF_TOKEN_INVALID` or `CSRF_ORIGIN_DENIED`. Bearer-authenticated
+API calls are unaffected. Every response echoes the correlation id as `X-Request-ID`
+(the same id is written to request logs). Unauthenticated probes: `GET /health`,
+`GET /health/ready` (real database check) and `GET /openapi.json`.
+
 ## Error envelope
 ```json
 { "detail": "Human readable message", "code": "MACHINE_CODE" }
@@ -133,7 +141,8 @@ unconfirmed transactions are recorded with status `failed`/`pending` and never c
 | POST | `/agreements/{id}/reconcile` | owner/admin/finance | read-only on-chain state comparison + audit entry |
 | GET | `/reports/analytics.pdf` | member | PDF export of DB-derived analytics |
 
-Every response is tenant-scoped. Request IDs are echoed in `X-Request-ID`.
+Every response is tenant-scoped. Request IDs are echoed in `X-Request-ID`. The
+reconciliation endpoint writes an audit entry only; it never alters financial records.
 
 ## Stellar config (server-side only, from env)
 - Network: Testnet

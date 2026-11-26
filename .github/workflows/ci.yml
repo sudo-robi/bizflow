@@ -1,5 +1,10 @@
 name: CI
 
+# Actions are intentionally kept on mutable major version tags (@v4, @v5, @v6)
+# for parity with the existing release workflow. Pinning each action to a full
+# commit SHA is a documented residual hardening item — see docs/DEPLOYMENT.md.
+# Security-relevant gates below are blocking: no `continue-on-error` is used.
+
 on:
   push:
     branches: [main]
@@ -30,14 +35,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
-        run: pip install -r backend/requirements.txt pip-audit
+          cache-dependency-path: backend/requirements.txt
+      - name: Install runtime dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Install CI-only tooling
+        run: python -m pip install "pip-audit>=2.7,<3" "ruff==0.17.6"
       - name: Compile check
         run: python -m compileall -q backend/app backend/tests backend/alembic
-      - name: Dependency security audit
+      # Ruff is a blocking correctness gate (syntax errors, undefined names,
+      # broken format strings). The repository's broader default rule set has
+      # pre-existing style findings; they are documented in docs/TESTING.md and
+      # are not silently ignored — run `ruff check backend/app backend/tests` to
+      # see all of them. mypy is deliberately NOT a CI gate yet: it reports 53
+      # pre-existing type errors (see docs/TESTING.md for the exact command).
+      - name: Backend lint (correctness gate)
+        run: ruff check --isolated --select E9,F63,F7,F82 backend/app backend/tests
+      # pip-audit does not expose severity in its JSON/text output. To avoid
+      # hidden findings we fail on ANY known vulnerability, a strict superset
+      # of the requested high/critical threshold. --strict also fails when
+      # dependency collection itself fails.
+      - name: Dependency security audit (blocking)
         working-directory: backend
-        run: pip-audit -r requirements.txt
-        continue-on-error: true
+        run: pip-audit --strict -r requirements.txt
       - name: Migration upgrade / downgrade / upgrade
         working-directory: backend
         env:
@@ -54,6 +73,37 @@ jobs:
           USE_SQLITE: "true"
           JWT_SECRET: "ci-only-secret-at-least-32-characters-long"
         run: python -m pytest -q
+      - name: API schema smoke test
+        working-directory: backend
+        env:
+          USE_SQLITE: "true"
+          SQLITE_PATH: ":memory:"
+          JWT_SECRET: "ci-only-secret-at-least-32-characters-long"
+          ENVIRONMENT: test
+        run: |
+          set -euo pipefail
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/bizflow-smoke.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health/ready > /dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          curl -fsS -o /tmp/openapi.json -w '%{http_code}\n' \
+            http://127.0.0.1:8000/openapi.json | grep -qx 200
+          python - <<'PY'
+          import json
+          with open("/tmp/openapi.json", encoding="utf-8") as handle:
+              schema = json.load(handle)
+          assert schema.get("info", {}).get("title"), "missing OpenAPI info.title"
+          assert schema.get("paths"), "OpenAPI schema has no paths"
+          print(f"OpenAPI schema OK: {len(schema['paths'])} paths")
+          PY
 
   frontend:
     runs-on: ubuntu-latest
@@ -76,10 +126,10 @@ jobs:
       - name: Type check
         working-directory: frontend
         run: npm run typecheck
-      - name: Dependency security audit
+      # --audit-level=high fails on high AND critical advisories.
+      - name: Dependency security audit (blocking)
         working-directory: frontend
         run: npm audit --audit-level=high
-        continue-on-error: true
       - name: Production build
         working-directory: frontend
         run: npm run build
@@ -91,10 +141,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32v1-none
       - name: Contract tests
         working-directory: contracts/escrow
         run: cargo test
-      - name: Clippy
+      # The two explicit allows cover lints raised by soroban-sdk's contractimpl
+      # macro (too_many_arguments) and one existing needless borrow. They are
+      # named here rather than hidden behind continue-on-error.
+      - name: Clippy (blocking)
         working-directory: contracts/escrow
-        run: cargo clippy -- -D warnings
-        continue-on-error: true
+        run: cargo clippy -- -D warnings -A clippy::too_many_arguments -A clippy::needless_borrows_for_generic_args
+      # wasm32v1-none is the SDK 30 target (wasm32-unknown-unknown is rejected by
+      # the SDK on Rust >= 1.82). soroban-sdk's build script requires a Stellar
+      # CLI >= 30 to be present; STELLAR_CLI_VERSION lets the toolchain perform
+      # the WASM build here. Published/deployed artifacts must still be produced
+      # with `stellar contract build` (see docs/SMART_CONTRACTS.md).
+      - name: Soroban WASM build
+        working-directory: contracts/escrow
+        env:
+          STELLAR_CLI_VERSION: "30.0.0"
+        run: cargo build --target wasm32v1-none --release
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify backend image builds
+        run: docker build -f backend/Dockerfile backend -t bizflow-backend:ci
+      - name: Verify frontend image builds
+        run: |
+          docker build -f frontend/Dockerfile frontend \
+            --build-arg NEXT_PUBLIC_API_BASE_URL=/api/v1 \
+            --build-arg BACKEND_ORIGIN=http://backend:8000 \
+            -t bizflow-frontend:ci

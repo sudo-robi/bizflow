@@ -176,6 +176,13 @@ class MemberOut(APIModel):
     created_at: datetime
 
 
+class MemberInviteOut(MemberOut):
+    """Create-member response: the only time the acceptance token is returned."""
+
+    invitation_token: str | None = None
+    invitation_expires_at: datetime | None = None
+
+
 # --- Suppliers -------------------------------------------------------------
 class SupplierCreate(APIModel):
     business_name: str = Field(min_length=1, max_length=255)
@@ -616,10 +623,18 @@ class EscrowPrepareIn(APIModel):
     escrow_contract_id: ContractId | None = None
 
 
+class EscrowBindContractIn(APIModel):
+    """Server-derived binding input; no on-chain agreement id is accepted here."""
+
+    escrow_contract_id: ContractId
+    source_account: StellarKey
+
+
 class EscrowFundPrepareIn(EscrowPrepareIn):
     amount: DecimalStr | None = None
-    # Numeric id the deployed contract was initialized with. Must be a positive
-    # integer; uniqueness per agreement is enforced in the database as well.
+    # Deprecated compatibility field. The binding endpoint derives this id from
+    # the contract getter; supplying a different value is a 400
+    # (ONCHAIN_ID_READ_ONLY). Supplying the already-bound value is harmless.
     onchain_agreement_id: int | None = Field(default=None, ge=1)
 
     @field_validator("amount")

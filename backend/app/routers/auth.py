@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import secrets
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
@@ -24,6 +23,7 @@ from app.schemas import (
 )
 from app.security import (
     create_access_token,
+    csrf_token_for_jwt,
     get_current_user,
     hash_password,
     revoke_token,
@@ -40,7 +40,12 @@ def _existing_user(db: Session, email: str) -> User | None:
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
-    """httpOnly session cookie plus a readable double-submit CSRF token."""
+    """httpOnly session cookie plus a session-bound, readable CSRF token.
+
+    The CSRF value is an HMAC of this JWT's ``jti`` and ``exp`` (see
+    ``csrf_token_for_jwt``); it can be read by JavaScript but cannot be swapped
+    for a token from a different session or an expired session.
+    """
     response.set_cookie(
         key=settings.session_cookie_name,
         value=token,
@@ -52,7 +57,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
     )
     response.set_cookie(
         key="bizflow_csrf",
-        value=secrets.token_urlsafe(32),
+        value=csrf_token_for_jwt(token),
         httponly=False,
         samesite="lax",
         secure=settings.session_cookie_secure,
@@ -89,15 +94,11 @@ def register(response: Response, payload: RegisterRequest, db: Session = Depends
                 status="active",
             )
         )
-    else:
-        invites = db.scalars(
-            select(BusinessMember).where(
-                BusinessMember.email == email, BusinessMember.status == "pending"
-            )
-        ).all()
-        for invite in invites:
-            invite.user_id = user.id
-            invite.status = "active"
+    # Registration proves only that the account was created. Membership
+    # invitations for this email stay "invited" until the authenticated owner
+    # of the mailbox explicitly accepts with the one-time token. Never activate
+    # pending/invited rows here: that would let an attacker register a victim's
+    # email and inherit their role.
 
     db.commit()
     db.refresh(user)

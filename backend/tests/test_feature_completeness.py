@@ -15,12 +15,18 @@ from stellar_sdk import Keypair
 
 from app import models, schemas
 from app.config import get_settings
-from app.services import stellar, verification
+from app.services import reconciliation, stellar, verification
 from tests.conftest import TestSession, create_invoice, create_supplier
 
 CONTRACT = get_settings().stellar_escrow_contract_id
 FUND_HASH = "f" * 64
 REFUND_HASH = "9" * 64
+
+
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """Event-layer stubs replace chain reads in this unit suite."""
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
 
 
 def _agreement(client, owner, supplier_id, *, milestones=None):
@@ -54,7 +60,9 @@ def _funded_agreement(client, owner, supplier_actor, fake_horizon):
     _activate_agreement(client, owner, supplier_actor, agreement)
     db = TestSession()
     try:
-        db.get(models.PaymentAgreement, agreement["id"]).onchain_agreement_id = 1
+        row = db.get(models.PaymentAgreement, agreement["id"])
+        row.onchain_agreement_id = 1
+        row.escrow_contract_id = CONTRACT
         db.commit()
     finally:
         db.close()

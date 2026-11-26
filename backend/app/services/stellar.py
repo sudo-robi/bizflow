@@ -25,12 +25,27 @@ from stellar_sdk import (
 )
 from stellar_sdk.exceptions import NotFoundError
 
-from app.config import get_settings
-from app.errors import bad_request, chain_error
+from app.config import MAINNET_PASSPHRASE, TESTNET_PASSPHRASE, get_settings
+from app.errors import BizError, bad_request, chain_error, conflict
 from app.utils import to_decimal
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def network_name() -> str:
+    """Network label derived from the configured passphrase, never hardcoded here.
+
+    BizFlow is testnet-only (config enforces this at startup). Any other
+    passphrase fails closed so a misconfigured process cannot label a chain
+    observation as the network it was actually built for.
+    """
+    passphrase = settings.stellar_network_passphrase.strip()
+    if passphrase == TESTNET_PASSPHRASE:
+        return "testnet"
+    if passphrase == MAINNET_PASSPHRASE or "public global" in passphrase.lower():
+        raise conflict("Mainnet is not supported by this deployment", "NETWORK_MISMATCH")
+    raise conflict("Unsupported Stellar network passphrase", "NETWORK_MISMATCH")
 
 
 @dataclass(frozen=True)
@@ -294,59 +309,81 @@ def build_soroban_refund_xdr(
     )
 
 
-def invoked_contract_function(signed_xdr: str, passphrase: str | None = None) -> tuple[str | None, str | None]:
-    """Decode the contract id and function name from a signed Soroban invocation.
+def _transaction_operations(signed_xdr: str, passphrase: str | None = None) -> list:
+    """Decode a signed envelope and demand exactly one operation.
 
-    Returned values come from the signed XDR itself, never from client input, so
-    they can be compared against the server-side expectation before submission.
+    Several unrelated operations in one signed transaction would let a caller
+    settle an agreement with a transaction whose real effect is elsewhere, so
+    the whole submission is rejected rather than picking a matching operation.
     """
     envelope = TransactionBuilder.from_xdr(
         signed_xdr, passphrase or settings.stellar_network_passphrase
     )
     transaction = getattr(envelope, "transaction", None) or getattr(envelope, "_transaction", None)
     operations = getattr(transaction, "operations", None) or []
-    for operation in operations:
-        # stellar-sdk 17 returns an InvokeHostFunction operation object directly;
-        # older SDKs expose it through operation.body.invoke_host_function_op.
-        host_function = getattr(operation, "host_function", None)
-        if host_function is None:
-            body = getattr(operation, "body", None)
-            invoke_op = getattr(body, "invoke_host_function_op", None)
-            host_function = getattr(invoke_op, "host_function", None)
-        if host_function is None:
-            continue
-        if host_function.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
-            continue
-        invocation = host_function.invoke_contract
-        symbol = invocation.function_name
-        raw_symbol = getattr(symbol, "sc_symbol", None)
-        function_name = bytes(raw_symbol).decode() if raw_symbol is not None else str(symbol)
-        address = invocation.contract_address
-        if address.type != xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT:
-            continue
-        contract_id = StrKey.encode_contract(address.contract_id.contract_id.hash)
-        return contract_id, str(function_name)
-    return None, None
+    if len(operations) != 1:
+        raise bad_request(
+            "signed_xdr must contain exactly one operation", "INVALID_OPERATION_COUNT"
+        )
+    return operations
+
+
+def _host_function(operation):
+    """Find an invoke_host_function payload in either SDK operation shape."""
+    host_function = getattr(operation, "host_function", None)
+    if host_function is None:
+        body = getattr(operation, "body", None)
+        invoke_op = getattr(body, "invoke_host_function_op", None)
+        host_function = getattr(invoke_op, "host_function", None)
+    if host_function is None:
+        return None
+    if host_function.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
+        return None
+    return host_function.invoke_contract
+
+
+def _native_parameters(invocation) -> list:
+    """Decode *every* argument with native values normalised for comparison."""
+    from stellar_sdk import Address
+
+    def native(value):
+        decoded = scval.to_native(value)
+        return decoded.address if isinstance(decoded, Address) else decoded
+
+    # stellar-sdk 17 names the argument vector `args`; older SDKs use `parameters`.
+    arguments = getattr(invocation, "args", None)
+    if arguments is None:
+        arguments = getattr(invocation, "parameters", [])
+    return [native(parameter) for parameter in arguments]
+
+
+def invoked_contract_function(signed_xdr: str, passphrase: str | None = None) -> tuple[str | None, str | None]:
+    """Decode the contract id and function name from the single signed operation.
+
+    Returned values come from the signed XDR itself, never from client input, so
+    they can be compared against the server-side expectation before submission.
+    """
+    invocation = _host_function(_transaction_operations(signed_xdr, passphrase)[0])
+    if invocation is None:
+        return None, None
+    symbol = invocation.function_name
+    raw_symbol = getattr(symbol, "sc_symbol", None)
+    function_name = bytes(raw_symbol).decode() if raw_symbol is not None else str(symbol)
+    address = invocation.contract_address
+    if address.type != xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT:
+        return None, None
+    contract_id = StrKey.encode_contract(address.contract_id.contract_id.hash)
+    return contract_id, str(function_name)
 
 
 def invoked_contract_parameters(
     signed_xdr: str, passphrase: str | None = None
 ) -> list:
-    """Decode every invocation argument from a signed Soroban XDR."""
-    envelope = TransactionBuilder.from_xdr(
-        signed_xdr, passphrase or settings.stellar_network_passphrase
-    )
-    transaction = getattr(envelope, "transaction", None) or getattr(envelope, "_transaction", None)
-    for operation in getattr(transaction, "operations", None) or []:
-        host_function = getattr(operation, "host_function", None)
-        if host_function is None:
-            body = getattr(operation, "body", None)
-            invoke_op = getattr(body, "invoke_host_function_op", None)
-            host_function = getattr(invoke_op, "host_function", None)
-        if host_function is None or host_function.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
-            continue
-        return [scval.to_native(parameter) for parameter in host_function.invoke_contract.parameters]
-    raise bad_request("signed_xdr is not a contract invocation", "INVALID_XDR")
+    """Decode every invocation argument from the single signed operation."""
+    invocation = _host_function(_transaction_operations(signed_xdr, passphrase)[0])
+    if invocation is None:
+        raise bad_request("signed_xdr is not a contract invocation", "INVALID_XDR")
+    return _native_parameters(invocation)
 
 
 def submit_soroban(
@@ -357,9 +394,11 @@ def submit_soroban(
 ) -> ChainResult:
     """Send a signed Soroban tx and poll getTransaction for a definitive status.
 
-    The submitted invocation is decoded from the signed XDR and checked against
-    the expected contract and function so a valid but unrelated transaction can
-    never be used to settle an agreement.
+    The single operation is always decoded. Whenever a contract id, function
+    name or parameter set is supplied, all three expectations are checked
+    against the signed XDR (never against client-supplied metadata), so a valid
+    but unrelated transaction can never settle an agreement. A SUCCESS result
+    without a ledger is *not* a confirmation.
     """
     try:
         envelope = TransactionBuilder.from_xdr(
@@ -369,22 +408,41 @@ def submit_soroban(
     except Exception as exc:
         raise bad_request("signed_xdr is not a valid Soroban transaction", "INVALID_XDR") from exc
 
-    if contract_id or function_name:
+    validate = any(
+        item is not None for item in (contract_id, function_name, expected_parameters)
+    )
+    decoded_contract: str | None = None
+    decoded_function: str | None = None
+    decoded_parameters: list | None = None
+    if contract_id is not None or function_name is not None:
         try:
             decoded_contract, decoded_function = invoked_contract_function(signed_xdr)
         except Exception as exc:
+            if isinstance(exc, BizError):
+                raise
             raise bad_request("signed_xdr is not a contract invocation", "INVALID_XDR") from exc
-        if decoded_contract is None or (contract_id and decoded_contract != contract_id):
-            raise bad_request("Signed transaction targets a different contract", "CONTRACT_MISMATCH")
-        if function_name and decoded_function != function_name:
-            raise bad_request("Signed transaction invokes a different function", "FUNCTION_MISMATCH")
-        if expected_parameters is not None:
-            try:
-                parameters = invoked_contract_parameters(signed_xdr)
-            except Exception as exc:
-                raise bad_request("Signed invocation parameters could not be decoded", "INVALID_XDR") from exc
-            if parameters != expected_parameters:
-                raise bad_request("Signed invocation parameters differ from the prepared operation", "PARAMETER_MISMATCH")
+    if expected_parameters is not None:
+        try:
+            decoded_parameters = invoked_contract_parameters(signed_xdr)
+        except Exception as exc:
+            if isinstance(exc, BizError):
+                raise
+            raise bad_request("signed_xdr is not a contract invocation", "INVALID_XDR") from exc
+    if not validate:
+        # Still enforce the one-operation rule for unsigned-inspection callers.
+        try:
+            _transaction_operations(signed_xdr)
+        except Exception as exc:
+            if isinstance(exc, BizError):
+                raise
+            raise bad_request("signed_xdr could not be decoded", "INVALID_XDR") from exc
+
+    if contract_id is not None and decoded_contract != contract_id:
+        raise bad_request("Signed transaction targets a different contract", "CONTRACT_MISMATCH")
+    if function_name is not None and decoded_function != function_name:
+        raise bad_request("Signed transaction invokes a different function", "FUNCTION_MISMATCH")
+    if expected_parameters is not None and decoded_parameters != list(expected_parameters):
+        raise bad_request("Signed invocation parameters differ from the prepared operation", "PARAMETER_MISMATCH")
 
     server = soroban_server()
     try:
@@ -405,14 +463,23 @@ def submit_soroban(
 
     status = getattr(result.status, "value", str(result.status))
     success = status == "SUCCESS"
+    ledger = getattr(result, "ledger", None)
+    confirmed = success and ledger is not None
+    reason = None
+    if confirmed:
+        reason = None
+    elif success:
+        reason = "Soroban reported SUCCESS without a ledger; not confirmed"
+    else:
+        reason = f"Soroban transaction status: {status}"
     return ChainResult(
         hash=tx_hash,
         status=status,
-        confirmed=success,
-        successful=success,
-        ledger=result.ledger,
-        raw={"latest_ledger": result.latest_ledger, "status": status},
-        reason=None if success else f"Soroban transaction status: {status}",
+        confirmed=confirmed,
+        successful=confirmed,
+        ledger=ledger,
+        raw={"latest_ledger": getattr(result, "latest_ledger", None), "status": status},
+        reason=reason,
     )
 
 

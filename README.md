@@ -52,9 +52,12 @@ publicly reachable instance, see [Deployment](#deployment--packages) below and
 
 ## Run locally (processes)
 
+CI and the Docker images use **Python 3.12** and **Node 22**.
+
 ```bash
 # Backend
 make setup-backend
+# for exact dependency versions: cd backend && .venv/bin/pip install -r requirements.txt -c constraints.txt
 make run-backend          # http://localhost:8000
 
 # Frontend (second terminal)
@@ -74,7 +77,8 @@ make test-contract
 python docs/scripts/testnet_smoke.py   # needs TESTNET_SECRET for a funded Testnet account
 ```
 
-See `docs/TESTING.md` for executed results and exact commands.
+Final suite sizes for this cycle: **262 backend**, **262 frontend**, **47 contract**
+tests. See `docs/TESTING.md` for executed results and exact commands.
 
 ## Configuration
 
@@ -86,16 +90,18 @@ transaction hashes are recorded in `docs/TESTNET_DEPLOYMENT.md`.
 
 ## Deployment & packages
 
-Container images are published to GitHub Container Registry on version tags:
-
-- Backend: `ghcr.io/sudo-robi/bizflow-backend`
-- Frontend: `ghcr.io/sudo-robi/bizflow-frontend`
-- Releases: <https://github.com/sudo-robi/bizflow/releases>
+Release notes v0.1.0–v0.4.0 exist at <https://github.com/sudo-robi/bizflow/releases>.
+The release workflow is prepared locally to publish images to GHCR as
+`ghcr.io/sudo-robi/bizflow-backend` and `ghcr.io/sudo-robi/bizflow-frontend` on `v*` tags,
+but **no images are published yet**: the workflows are not on the remote (the active
+token lacks `workflow` scope) and GHCR package listings return 404. No image tag should
+be assumed to exist until the release workflow actually runs.
 
 A public host must be provisioned to expose the stack; see `docs/DEPLOYMENT.md`
-for the required environment and reverse-proxy configuration. No public host is
-provisioned by this repository alone, and no URL is claimed here unless it has
-actually been deployed and health-checked.
+for the required environment, reverse-proxy configuration, backup drill and the
+`testnet-demo` deploy workflow. No public host is provisioned by this repository
+alone, and no URL is claimed here unless it has actually been deployed and
+health-checked.
 
 ## Documentation
 

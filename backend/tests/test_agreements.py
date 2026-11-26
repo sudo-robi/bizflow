@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.config import get_settings
 from app import models
 from app.services import stellar, verification
@@ -12,10 +14,20 @@ from tests.conftest import TestSession, create_supplier
 CONTRACT_ID = get_settings().stellar_escrow_contract_id
 
 
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """These tests stub the chain at the event layer; identity reads are covered in test_closure_blockchain."""
+    from app.services import reconciliation
+
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
+
+
 def _set_onchain_id(agreement_id: str, value: int = 1) -> None:
     db = TestSession()
     try:
-        db.get(models.PaymentAgreement, agreement_id).onchain_agreement_id = value
+        row = db.get(models.PaymentAgreement, agreement_id)
+        row.onchain_agreement_id = value
+        row.escrow_contract_id = CONTRACT_ID
         db.commit()
     finally:
         db.close()
@@ -319,6 +331,7 @@ def test_escrow_fund_and_approve_require_verified_events(client, owner, supplier
     agreement = _create(client, owner, supplier["id"])
     client.post(f"/api/v1/agreements/{agreement['id']}/submit", headers=owner.headers)
     client.post(f"/api/v1/agreements/{agreement['id']}/accept", headers=supplier_actor.headers)
+    _set_onchain_id(agreement["id"])
     fund_hash = "c" * 64
     monkeypatch.setattr(
         stellar, "build_soroban_fund_xdr",
@@ -340,7 +353,7 @@ def test_escrow_fund_and_approve_require_verified_events(client, owner, supplier
     prepared = client.post(
         f"/api/v1/agreements/{agreement['id']}/prepare-fund",
         headers=owner.headers,
-        json={"source_account": Keypair.random().public_key, "onchain_agreement_id": 1},
+        json={"source_account": Keypair.random().public_key},
     )
     assert prepared.status_code == 200, prepared.text
     submitted = client.post(

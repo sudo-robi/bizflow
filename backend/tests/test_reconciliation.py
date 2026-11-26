@@ -5,12 +5,38 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from stellar_sdk import Account, Keypair as StellarKeypair, scval
+from stellar_sdk import Account, Asset, Keypair as StellarKeypair, scval
 
 from app.config import get_settings
 from app.services import reconciliation, stellar
 
 settings = get_settings()
+
+
+def _patch_readers(monkeypatch, *, milestone=None, events=None):
+    """The reconciliation suite mocks every RPC read, not just balances."""
+    state = {
+        "agreement_id": 1,
+        "payer": StellarKeypair.random().public_key,
+        "payee": StellarKeypair.random().public_key,
+        "asset": Asset.native().contract_id(settings.stellar_network_passphrase),
+        "total_amount": 20000000,
+        "milestone_count": 1,
+        "funded": 20000000,
+        "released": 0,
+        "remaining": 20000000,
+        "authorized": StellarKeypair.random().public_key,
+        "status": "Funded",
+    }
+    monkeypatch.setattr(reconciliation, "read_contract_agreement", lambda *a, **k: dict(state))
+    monkeypatch.setattr(
+        reconciliation, "read_contract_milestone",
+        lambda *a, **k: milestone or {
+            "index": 0, "description": "M1", "amount": 10000000,
+            "approved": True, "released": True,
+        },
+    )
+    monkeypatch.setattr(reconciliation, "read_contract_events", lambda *a, **k: events or [])
 
 
 def _balance_xdr(funded: int, released: int, remaining: int) -> str:
@@ -46,8 +72,12 @@ def test_read_contract_balances_decodes_soroban_result(monkeypatch):
 def test_reconciliation_reports_mismatch_and_never_repairs(monkeypatch):
     agreement = SimpleNamespace(
         id="agreement-1",
+        business_id="business-1",
         escrow_contract_id=settings.stellar_escrow_contract_id,
         onchain_agreement_id=1,
+        total_amount="2",
+        asset_code="XLM",
+        asset_issuer=None,
         funded_amount="2",
         fund_transaction_hash="a" * 64,
     )
@@ -58,6 +88,7 @@ def test_reconciliation_reports_mismatch_and_never_repairs(monkeypatch):
     monkeypatch.setattr(
         reconciliation, "read_contract_balances", lambda *a, **k: ({"funded": 20000000, "released": 0, "remaining": 20000000}, 1)
     )
+    _patch_readers(monkeypatch)
 
     report = reconciliation.reconcile_agreement(db, agreement, source_account=StellarKeypair.random().public_key)
     data = report.as_dict()
@@ -124,6 +155,13 @@ def test_reconcile_endpoint_returns_report_and_audit(client, owner, monkeypatch)
         "read_contract_balances",
         lambda *a, **k: ({"funded": 20000000, "released": 0, "remaining": 20000000}, 1),
     )
+    _patch_readers(
+        monkeypatch,
+        milestone={
+            "index": 0, "description": "M1", "amount": 20000000,
+            "approved": False, "released": False,
+        },
+    )
     response = client.post(
         f"/api/v1/agreements/{agreement['id']}/reconcile", headers=owner.headers
     )
@@ -141,8 +179,12 @@ def test_reconcile_endpoint_returns_report_and_audit(client, owner, monkeypatch)
 def test_reconciliation_consistent_state(monkeypatch):
     agreement = SimpleNamespace(
         id="agreement-2",
+        business_id="business-1",
         escrow_contract_id=settings.stellar_escrow_contract_id,
         onchain_agreement_id=1,
+        total_amount="2",
+        asset_code="XLM",
+        asset_issuer=None,
         funded_amount="2",
         fund_transaction_hash="b" * 64,
     )
@@ -155,5 +197,6 @@ def test_reconciliation_consistent_state(monkeypatch):
         "read_contract_balances",
         lambda *a, **k: ({"funded": 20000000, "released": 10000000, "remaining": 10000000}, 1),
     )
+    _patch_readers(monkeypatch)
     report = reconciliation.reconcile_agreement(db, agreement, source_account=StellarKeypair.random().public_key)
-    assert report.as_dict()["consistent"] is True
+    assert report.as_dict()["consistent"] is True, report.as_dict()["discrepancies"]

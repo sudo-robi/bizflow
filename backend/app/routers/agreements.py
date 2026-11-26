@@ -23,6 +23,7 @@ from app.models import (
     MilestoneEvidence,
     PaymentAgreement,
     PaymentRecord,
+    ReconciliationRecord,
     Supplier,
     User,
 )
@@ -520,6 +521,17 @@ def cancel_agreement(
     agreement = _agreement(db, agreement_id, membership.business_id)
     if agreement.status in ("completed", "cancelled"):
         raise conflict("Agreement is already final", "AGREEMENT_STATE")
+    open_records = db.scalars(
+        select(ReconciliationRecord).where(
+            ReconciliationRecord.agreement_id == agreement.id,
+            ReconciliationRecord.resolution_status == "open",
+        )
+    ).all()
+    if any(record.discrepancy for record in open_records):
+        raise conflict(
+            "An unresolved chain discrepancy must be reconciled before cancellation",
+            "RECONCILIATION_OPEN",
+        )
     # Cancellation is off-chain only. A funded agreement still holds escrowed
     # value on-chain; cancelling it in the database would strand those funds and
     # contradict chain state. Require a verified refund instead.

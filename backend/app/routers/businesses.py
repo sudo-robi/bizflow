@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import Column, DateTime, String, inspect, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.errors import bad_request, conflict, not_found
+from app.errors import bad_request, conflict, forbidden, not_found
 from app.models import Business, BusinessMember, User
 from app.schemas import (
     BusinessCreate,
     BusinessOut,
     BusinessUpdate,
     MemberCreate,
+    MemberInviteOut,
     MemberOut,
     MemberUpdate,
 )
@@ -25,8 +31,40 @@ from app.security import (
     require_roles,
 )
 from app.services.notifications import audit
+from app.utils import naive, utcnow
 
 router = APIRouter(prefix="/businesses", tags=["businesses"])
+
+INVITATION_TTL_DAYS = 7
+
+
+def _enable_member_invitation_columns() -> None:
+    """Attach the one-time invitation columns to the BusinessMember ORM model.
+
+    The model itself lives in ``app.models``; registering the columns here keeps
+    the change scoped to the membership router. ``Base.metadata.create_all``
+    (tests) and Alembic revision 0007 (deployments) create the same nullable
+    columns, so existing rows keep working unchanged.
+    """
+    table = BusinessMember.__table__
+    for name, column in (
+        ("invitation_token", Column("invitation_token", String(64), nullable=True)),
+        (
+            "invitation_expires_at",
+            Column("invitation_expires_at", DateTime(timezone=True), nullable=True),
+        ),
+    ):
+        if name not in table.c:
+            table.append_column(column)
+            inspect(BusinessMember).add_property(name, column)
+
+
+_enable_member_invitation_columns()
+
+
+def _hash_invitation_token(token: str) -> str:
+    """Only the digest is persisted; the raw token is returned exactly once."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _business_or_404(db: Session, business_id: str) -> Business:
@@ -145,7 +183,7 @@ def list_members(
     ]
 
 
-@router.post("/{business_id}/members", response_model=MemberOut, status_code=201)
+@router.post("/{business_id}/members", response_model=MemberInviteOut, status_code=201)
 def add_member(
     business_id: str,
     payload: MemberCreate,
@@ -162,14 +200,25 @@ def add_member(
     )
     if existing is not None or (user and membership_for_optional(db, user.id, business_id)):
         raise conflict("This member already exists", "MEMBER_EXISTS")
+
+    # Unknown emails never grant privileges on registration: the invitee must
+    # prove mailbox ownership by accepting a one-time, expiring token.
+    raw_token: str | None = None
+    expires_at = None
+    if user is None:
+        raw_token = secrets.token_urlsafe(32)
+        expires_at = utcnow() + timedelta(days=INVITATION_TTL_DAYS)
     member = BusinessMember(
         business_id=business_id,
         user_id=user.id if user else None,
         email=email,
         role=payload.role,
-        status="active" if user else "pending",
+        status="active" if user else "invited",
         invited_by=membership.user_id,
     )
+    if raw_token is not None:
+        member.invitation_token = _hash_invitation_token(raw_token)
+        member.invitation_expires_at = expires_at
     db.add(member)
     audit(
         db, business_id, membership.user_id, "member.invited", "business_member", member.id,
@@ -177,13 +226,72 @@ def add_member(
     )
     db.commit()
     db.refresh(member)
-    return MemberOut(
+    return MemberInviteOut(
         id=member.id,
         user=member.user,
         email=member.email,
         role=member.role,
         status=member.status,
         created_at=member.created_at,
+        invitation_token=raw_token,
+        invitation_expires_at=expires_at,
+    )
+
+
+@router.post("/{business_id}/members/invitations/{token}/accept", response_model=MemberOut)
+def accept_member_invitation(
+    business_id: str,
+    token: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Accept a membership invitation as the authenticated owner of the email.
+
+    The caller's verified session email must match the invited address. An
+    owner/admin cannot accept on someone else's behalf, and registration alone
+    never grants the role.
+    """
+    digest = _hash_invitation_token(token)
+    invited = db.scalar(
+        select(BusinessMember).where(
+            BusinessMember.business_id == business_id,
+            BusinessMember.invitation_token == digest,
+        )
+    )
+    if invited is None or invited.status != "invited" or not hmac.compare_digest(
+        invited.invitation_token or "", digest
+    ):
+        raise bad_request("Invitation is invalid or has already been used", "INVITATION_INVALID")
+    if user.email.lower() != invited.email.lower():
+        raise forbidden("This invitation was sent to a different email address")
+
+    expires_at = naive(invited.invitation_expires_at)
+    if expires_at is None or expires_at <= utcnow():
+        invited.status = "expired"
+        invited.invitation_token = None
+        invited.invitation_expires_at = None
+        db.commit()
+        raise bad_request("Invitation has expired", "INVITATION_EXPIRED")
+    if membership_for_optional(db, user.id, business_id) is not None:
+        raise conflict("You are already an active member of this business", "MEMBER_EXISTS")
+
+    invited.user_id = user.id
+    invited.status = "active"
+    invited.invitation_token = None
+    invited.invitation_expires_at = None
+    audit(
+        db, business_id, user.id, "member.invitation_accepted", "business_member", invited.id,
+        {"email": invited.email, "role": invited.role},
+    )
+    db.commit()
+    db.refresh(invited)
+    return MemberOut(
+        id=invited.id,
+        user=invited.user,
+        email=invited.email,
+        role=invited.role,
+        status=invited.status,
+        created_at=invited.created_at,
     )
 
 

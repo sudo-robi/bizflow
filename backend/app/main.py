@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -39,10 +42,50 @@ from app.routers import (
     transactions,
     wallets,
 )
+from app.security import csrf_token_for_jwt
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-)
+# --- Observability: request_id on every log record -------------------------
+request_id_var: ContextVar[str] = ContextVar("bizflow_request_id", default="")
+
+
+class RequestIdFilter(logging.Filter):
+    """Attach the current request's correlation id to every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not getattr(record, "request_id", None):
+            record.request_id = request_id_var.get() or "-"
+        return True
+
+
+class RequestIdJsonFormatter(logging.Formatter):
+    """JSON lines with a guaranteed request_id field for log aggregation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        if not hasattr(record, "request_id"):
+            record.request_id = request_id_var.get() or "-"
+        payload: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "request_id": record.request_id,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
+_LOG_FILTER = RequestIdFilter()
+_LOG_FORMATTER = RequestIdJsonFormatter()
+logging.basicConfig(level=logging.INFO)
+_root_logger = logging.getLogger()
+if not _root_logger.handlers:
+    _root_logger.addHandler(logging.StreamHandler())
+for _handler in _root_logger.handlers:
+    if _LOG_FILTER not in _handler.filters:
+        _handler.addFilter(_LOG_FILTER)
+    _handler.setFormatter(_LOG_FORMATTER)
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -70,7 +113,7 @@ app.add_middleware(
 )
 
 
-CSRF_COOKIE = "bizflow_csrf"
+CSRF_COOKIE = "bizflow_csrf"  # non-httpOnly cookie whose value is the derived HMAC
 CSRF_HEADER = "X-CSRF-Token"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 # Public endpoints that must work before a session/CSRF cookie exists.
@@ -90,7 +133,13 @@ def _origin_allowed(origin: str) -> bool:
 
 
 def _csrf_rejected(request: Request) -> str | None:
-    """Return a stable reason code when a cookie-authenticated mutation is unsafe."""
+    """Return a stable reason code when a cookie-authenticated mutation is unsafe.
+
+    The double-submit token is no longer an arbitrary cookie value: it must be
+    the HMAC derived from the session JWT presented in the httpOnly cookie.
+    Origin/Referer are only an additional denial check, never a substitute for
+    the token, and Sec-Fetch-Site is not trusted at all.
+    """
     if request.method in SAFE_METHODS or not settings.enforce_csrf_origin_check:
         return None
     if not request.cookies.get(settings.session_cookie_name):
@@ -99,17 +148,21 @@ def _csrf_rejected(request: Request) -> str | None:
         return None  # Explicit token client, not a cookie-authenticated browser.
     if request.url.path.startswith(CSRF_EXEMPT_PREFIXES):
         return None
-    cookie_token = request.cookies.get(CSRF_COOKIE)
-    supplied = request.headers.get(CSRF_HEADER)
-    if cookie_token and supplied and hmac.compare_digest(cookie_token, supplied):
-        return None
-    fetch_site = request.headers.get("sec-fetch-site")
-    if fetch_site in ("same-origin", "none"):
-        return None
+
     origin = request.headers.get("origin") or request.headers.get("referer")
-    if origin and _origin_allowed(origin):
-        return None
-    return "CSRF_TOKEN_MISSING" if not origin else "CSRF_ORIGIN_DENIED"
+    if origin and not _origin_allowed(origin):
+        return "CSRF_ORIGIN_DENIED"  # defense in depth, even with a valid token
+
+    try:
+        expected = csrf_token_for_jwt(request.cookies[settings.session_cookie_name])
+    except BizError:
+        return "CSRF_TOKEN_INVALID"  # expired, forged or malformed session cookie
+    supplied = request.headers.get(CSRF_HEADER)
+    if not supplied:
+        return "CSRF_TOKEN_MISSING"
+    if not hmac.compare_digest(expected, supplied):
+        return "CSRF_TOKEN_INVALID"
+    return None
 
 
 @app.middleware("http")
@@ -117,42 +170,50 @@ async def request_security(request: Request, call_next):
     """Correlation id, CSRF enforcement, security headers and size limits."""
     request_id = request.headers.get("X-Request-ID", "")[:128] or uuid.uuid4().hex
     request.state.request_id = request_id
+    request_id_token = request_id_var.set(request_id)
+    try:
+        declared_size = request.headers.get("content-length")
+        if (
+            declared_size
+            and declared_size.isdigit()
+            and int(declared_size) > settings.max_request_body_bytes
+        ):
+            response = JSONResponse(
+                status_code=413,
+                content={"detail": "Request body is too large", "code": "REQUEST_TOO_LARGE"},
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
 
-    declared_size = request.headers.get("content-length")
-    if declared_size and declared_size.isdigit() and int(declared_size) > settings.max_request_body_bytes:
-        response = JSONResponse(
-            status_code=413,
-            content={"detail": "Request body is too large", "code": "REQUEST_TOO_LARGE"},
-        )
+        reason = _csrf_rejected(request)
+        if reason:
+            logger.warning(
+                "Blocked cross-site request %s %s: %s", request.method, request.url.path, reason
+            )
+            response = JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-site request rejected", "code": reason},
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
+
+        response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
-        return response
-
-    reason = _csrf_rejected(request)
-    if reason:
-        logger.warning("Blocked cross-site request %s %s: %s", request.method, request.url.path, reason)
-        response = JSONResponse(
-            status_code=403,
-            content={"detail": "Cross-site request rejected", "code": reason},
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
-        response.headers["X-Request-ID"] = request_id
+        if settings.session_cookie_secure:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        logger.info(
+            "method=%s path=%s status=%s", request.method, request.url.path, response.status_code
+        )
         return response
-
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-    )
-    if settings.session_cookie_secure:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    logger.info(
-        "request_id=%s method=%s path=%s status=%s",
-        request_id, request.method, request.url.path, response.status_code,
-    )
-    return response
+    finally:
+        request_id_var.reset(request_id_token)
 
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit_per_minute])

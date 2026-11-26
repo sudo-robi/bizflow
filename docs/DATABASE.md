@@ -1,8 +1,11 @@
 # Database Design
 
-PostgreSQL is the system of record. Alembic manages schema migrations. For local
-unit tests, `USE_SQLITE=true` selects a real SQLite database file (never browser
-storage), so tests do not require a running Postgres server.
+PostgreSQL is the system of record. Alembic manages schema migrations. The documented
+head at the reconciliation closure is `0006_reconciliation` (created
+`reconciliation_records`); always confirm with `cd backend && .venv/bin/alembic heads`
+before deploying, since later migrations may exist in working copies. For local
+unit tests, `USE_SQLITE=true` selects a real SQLite database (never browser storage),
+so tests do not require a running Postgres server.
 
 All money columns are `NUMERIC(20,7)` and serialized as strings. All tables have
 `created_at`/`updated_at` timestamps. Foreign keys enforce referential integrity and
@@ -28,6 +31,7 @@ unique constraints prevent duplicate settlement.
 | `supplier_invitations` | Supplier invitation lifecycle | token unique; status pending/accepted/rejected/expired/revoked; expires_at; business-bound |
 | `invoice_attachments` | Invoice files | FK invoice + business; 5 MB validation; no secret-file content |
 | `milestone_evidence` | Deliverable evidence | FK milestone; supplier submission; review status; audited |
+| `reconciliation_records` | On-chain vs database comparison results | FK business + agreement; expected/observed/discrepancy JSON; resolution status; audit-only, never auto-corrects financial state |
 
 Payment status values are `prepared`, `verifying`, `confirmed`, `failed` (not `pending`/`submitted`). Agreement milestones carry `sort_order`, `release_transaction_hash` and `released_at`; there is no separate `approved_at` column. Notifications use `is_read`, not `read_at`.
 
