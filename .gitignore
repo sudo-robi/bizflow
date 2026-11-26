@@ -42,3 +42,7 @@ test-results/
 *.swp
 .idea/
 .vscode/
+
+# Reports & docs (local only)
+BIZFLOW_*.md
+BIZFLOW_*.zip

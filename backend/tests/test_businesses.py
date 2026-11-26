@@ -24,7 +24,7 @@ def test_create_business_makes_creator_owner(client, owner):
     assert roles[response.json()["id"]] == "owner"
 
 
-def test_add_unknown_member_creates_pending_invite_activated_on_register(client, owner):
+def test_add_unknown_member_requires_explicit_acceptance(client, owner):
     email = f"invite-{uuid.uuid4().hex[:8]}@example.com"
     invited = client.post(
         f"/api/v1/businesses/{owner.business_id}/members",
@@ -32,12 +32,31 @@ def test_add_unknown_member_creates_pending_invite_activated_on_register(client,
         json={"email": email, "role": "finance_manager"},
     )
     assert invited.status_code == 201, invited.text
-    assert invited.json()["status"] == "pending"
+    invite = invited.json()
+    assert invite["status"] == "invited"
+    assert invite["invitation_token"]
+    assert invite["invitation_expires_at"]
+
     registered = client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": "Str0ngPassw0rd!", "full_name": "Invited"},
     )
     assert registered.status_code == 201
+    headers = {"Authorization": f"Bearer {registered.json()['token']}"}
+    me = client.get("/api/v1/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["memberships"] == []  # registration alone grants nothing
+
+    accepted = client.post(
+        f"/api/v1/businesses/{owner.business_id}/members/invitations/"
+        f"{invite['invitation_token']}/accept",
+        headers=headers,
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["status"] == "active"
+    assert accepted.json()["role"] == "finance_manager"
+    assert "invitation_token" not in accepted.json()
+
     members = client.get(
         f"/api/v1/businesses/{owner.business_id}/members", headers=owner.headers
     ).json()

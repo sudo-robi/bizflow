@@ -188,7 +188,7 @@ def test_agreement_events_include_matching_soroban_events(client, owner, monkeyp
         def get_events(self, **kwargs):
             event = SimpleNamespace(
                 contract_id="C" + "d" * 55,
-                topic=[scval.to_uint32(7).to_xdr()],
+                topic=[scval.to_symbol("funded").to_xdr(), scval.to_uint32(7).to_xdr()],
                 value=scval.to_uint32(1).to_xdr(),
                 ledger=5,
                 transaction_hash=HASH,

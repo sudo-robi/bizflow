@@ -110,52 +110,53 @@ def second_owner(client) -> Actor:
     return register(client)
 
 
-@pytest.fixture
-def finance_actor(client, owner) -> Actor:
-    email = f"finance-{uuid.uuid4().hex[:12]}@example.com"
-    response = client.post(
+def invite_and_accept(
+    client: TestClient, owner: Actor, *, email: str, role: str, full_name: str = "Invited User"
+) -> Actor:
+    """Owner invites an unknown email; the invitee registers and accepts explicitly."""
+    invited = client.post(
         f"/api/v1/businesses/{owner.business_id}/members",
         headers=owner.headers,
-        json={"email": email, "role": "finance_manager"},
+        json={"email": email, "role": role},
     )
-    assert response.status_code == 201, response.text
-    login = client.post(
-        "/api/v1/auth/login", json={"email": email, "password": "Str0ngPassw0rd!"}
-    )
-    # Unknown users are pending invites; register to activate, then log in.
-    assert login.status_code == 401
+    assert invited.status_code == 201, invited.text
+    token = invited.json().get("invitation_token")
+    assert token, invited.text
     created = client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "Str0ngPassw0rd!", "full_name": "Finance User"},
+        json={"email": email, "password": "Str0ngPassw0rd!", "full_name": full_name},
     )
     assert created.status_code == 201, created.text
+    accepted = client.post(
+        f"/api/v1/businesses/{owner.business_id}/members/invitations/{token}/accept",
+        headers={"Authorization": f"Bearer {created.json()['token']}"},
+    )
+    assert accepted.status_code == 200, accepted.text
     return Actor(
         token=created.json()["token"],
         business_id=owner.business_id,
         user_id=created.json()["user"]["id"],
         email=email,
+    )
+
+
+@pytest.fixture
+def finance_actor(client, owner) -> Actor:
+    return invite_and_accept(
+        client, owner,
+        email=f"finance-{uuid.uuid4().hex[:12]}@example.com",
+        role="finance_manager",
+        full_name="Finance User",
     )
 
 
 @pytest.fixture
 def supplier_actor(client, owner) -> Actor:
-    email = f"supplier-{uuid.uuid4().hex[:12]}@example.com"
-    response = client.post(
-        f"/api/v1/businesses/{owner.business_id}/members",
-        headers=owner.headers,
-        json={"email": email, "role": "supplier"},
-    )
-    assert response.status_code == 201, response.text
-    created = client.post(
-        "/api/v1/auth/register",
-        json={"email": email, "password": "Str0ngPassw0rd!", "full_name": "Supplier User"},
-    )
-    assert created.status_code == 201, created.text
-    return Actor(
-        token=created.json()["token"],
-        business_id=owner.business_id,
-        user_id=created.json()["user"]["id"],
-        email=email,
+    return invite_and_accept(
+        client, owner,
+        email=f"supplier-{uuid.uuid4().hex[:12]}@example.com",
+        role="supplier",
+        full_name="Supplier User",
     )
 
 

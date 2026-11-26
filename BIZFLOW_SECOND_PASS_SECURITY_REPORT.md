@@ -9,7 +9,7 @@ Summary of second-pass security findings:
 3. **HIGH (fixed)** — approve/release submit paths skipped state/expiry/kind checks. Re-validated.
 4. **HIGH (fixed)** — transaction verification authorization and global hash blocking. Role-gated, business-scoped.
 5. **HIGH (partially mitigated)** — one configured contract shared across agreements; per-agreement binding enforced, per-instance deployment requires funded keys.
-6. **MEDIUM (partially mitigated)** — CSRF token absent; SameSite=Lax cookie plus custom business header on tenant writes.
+6. **MEDIUM (fixed)** — CSRF on cookie-authenticated writes now uses a double-submit `bizflow_csrf` cookie / `X-CSRF-Token` header with origin checks; public auth endpoints are explicitly exempt. See `tests/test_hardening.py`.
 7. **MEDIUM (fixed)** — attachment uploads validated and business-bound.
 8. **BLOCKED** — live deployment/packages due to missing host credentials and token scope.
 

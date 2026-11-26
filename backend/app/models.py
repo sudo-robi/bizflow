@@ -269,8 +269,10 @@ class PaymentAgreement(Base, TimestampMixin):
     approval_requirements: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)
     escrow_contract_id: Mapped[str | None] = mapped_column(String(56))
-    # Numeric id stored in the Soroban contract (one contract instance per agreement).
+    # All three fields below are derived from the contract getter by the
+    # bind-contract endpoint; clients can never set them directly.
     onchain_agreement_id: Mapped[int | None] = mapped_column(Integer)
+    escrow_payer: Mapped[str | None] = mapped_column(String(56))
     funded_amount: Mapped[Any] = mapped_column(AMOUNT, default=DecimalZero, nullable=False)
     fund_transaction_hash: Mapped[str | None] = mapped_column(String(64))
     cancellation_reason: Mapped[str | None] = mapped_column(Text)

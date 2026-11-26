@@ -23,8 +23,10 @@ Result (latest ledger **5907394**):
 {"funded": 20000000, "released": 10000000, "remaining": 10000000}
 ```
 
-Interpretation: 20 XLM funded, 10 XLM released, 10 XLM remaining in stroops — consistent with the
-`funded`/`released` events and the historical readback recorded in `docs/TESTNET_DEPLOYMENT.md`.
+Interpretation: values are in stroops (1 XLM = 10,000,000 stroops), so
+20,000,000 stroops = **2 XLM funded**, 10,000,000 stroops = **1 XLM released**, and
+10,000,000 stroops = **1 XLM remaining** — consistent with the `funded`/`released`
+events and the historical readback recorded in `docs/TESTNET_DEPLOYMENT.md`.
 This value came from the contract itself, not from the application database.
 
 Corroborating read-only evidence:

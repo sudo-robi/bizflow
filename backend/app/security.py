@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -63,6 +65,25 @@ def decode_access_token(token: str) -> dict:
     if not payload.get("sub"):
         raise unauthorized("Invalid authentication token")
     return payload
+
+
+def csrf_token_for_jwt(token: str) -> str:
+    """Derive the double-submit token from the session JWT.
+
+    The token is bound to the exact session (jti + exp) and signed with the
+    application secret, so a token lifted from another session or replayed with
+    an expired cookie cannot satisfy the middleware. Signature and expiry are
+    verified by ``decode_access_token`` before the HMAC is computed. The derived
+    value is safe to expose to JavaScript through the non-httpOnly cookie; the
+    JWT itself never leaves the httpOnly cookie.
+    """
+    payload = decode_access_token(token)
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or exp is None:
+        raise unauthorized("Invalid authentication token")
+    message = f"{jti}:{exp}".encode("utf-8")
+    return hmac.new(settings.jwt_secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def get_current_user(

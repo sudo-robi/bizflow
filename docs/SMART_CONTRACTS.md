@@ -45,19 +45,28 @@ carrying the agreement id so off-chain verification can correlate them.
 
 ```bash
 cd contracts/escrow
-cargo test                                # 24 tests, all passing
+cargo test                                # 47 tests, all passing
+cargo clippy -- -D warnings \
+  -A clippy::too_many_arguments \
+  -A clippy::needless_borrows_for_generic_args
 rustup target add wasm32v1-none           # SDK 30 does not support wasm32-unknown-unknown on Rust 1.84+
-stellar contract build                    # optimized wasm
+STELLAR_CLI_VERSION=30.0.0 cargo build --target wasm32v1-none --release
+stellar contract build                    # optimized wasm for deployment
 ```
 
 `cargo build --target wasm32-unknown-unknown --release` intentionally fails with the
 SDK's guard directing use of `wasm32v1-none`; use `stellar contract build` as above.
+Raw cargo builds also fail unless the SDK's `STELLAR_CLI_VERSION >= 30` build-script
+guard is satisfied; CI sets it explicitly, but deployable artifacts must still be
+produced with the official Stellar CLI (`stellar contract build`). The CLI is not
+installed in this environment, so that specific command was not re-executed in the
+final cycle.
 
 ### Test coverage
 
 Funding, milestone release, unauthorized release, duplicate release, insufficient
 balance, invalid state/approval, refund rules, amount-sum validation, one-shot init and
-event emission — 24 tests using a real registered Stellar Asset Contract in the test
+event emission — 47 tests using a real registered Stellar Asset Contract in the test
 environment.
 
 ### Deployment

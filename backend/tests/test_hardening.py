@@ -9,11 +9,18 @@ from sqlalchemy import select
 
 from app import models
 from app.config import get_settings
-from app.services import stellar, verification
+from app.security import csrf_token_for_jwt
+from app.services import reconciliation, stellar, verification
 from tests.conftest import TestSession, create_supplier
 
 CONTRACT = get_settings().stellar_escrow_contract_id
 HASH = "f" * 64
+
+
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """Event-layer stubs replace chain reads in this unit suite."""
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
 
 
 def _agreement_body(supplier_id: str, total: str = "100.00"):
@@ -42,6 +49,7 @@ def _active_agreement(client, owner):
     try:
         row = db.get(models.PaymentAgreement, agreement["id"])
         row.onchain_agreement_id = 1
+        row.escrow_contract_id = CONTRACT  # escrow binding is now required to fund
         row.status = "active"  # fixture: supplier acceptance is covered elsewhere
         db.commit()
     finally:
@@ -63,21 +71,41 @@ def test_csrf_blocks_cookie_authenticated_mutation(client):
     )
     assert response.status_code == 201
     token = client.cookies.get("bizflow_csrf")
-    assert token
+    session = client.cookies.get("bizflow_session")
+    assert token and session
+    assert token == csrf_token_for_jwt(session)
 
-    # Cookie present, no CSRF token and no Origin -> rejected.
+    # Cookie present, no header and no Origin -> rejected.
     blocked = client.post("/api/v1/businesses", json={"name": "Cross-site"})
     assert blocked.status_code == 403
     assert blocked.json()["code"] == "CSRF_TOKEN_MISSING"
 
-    # Same cookie with the double-submit token -> allowed.
+    # Sec-Fetch-Site is never a substitute for the token.
+    fetch_site = client.post(
+        "/api/v1/businesses",
+        json={"name": "Cross-site"},
+        headers={"Sec-Fetch-Site": "same-origin"},
+    )
+    assert fetch_site.status_code == 403
+    assert fetch_site.json()["code"] == "CSRF_TOKEN_MISSING"
+
+    # A token from a different session is rejected even with a same-origin hint.
+    foreign = client.post(
+        "/api/v1/businesses",
+        json={"name": "Cross-site"},
+        headers={"X-CSRF-Token": "a" * 64, "Sec-Fetch-Site": "same-origin"},
+    )
+    assert foreign.status_code == 403
+    assert foreign.json()["code"] == "CSRF_TOKEN_INVALID"
+
+    # The value derived from this session's JWT is accepted.
     allowed = client.post(
         "/api/v1/businesses", json={"name": "Legitimate"}, headers={"X-CSRF-Token": token}
     )
     assert allowed.status_code == 201, allowed.text
 
 
-def test_csrf_rejects_foreign_origin_without_token(client):
+def test_csrf_rejects_foreign_origin_with_and_without_token(client):
     client.post(
         "/api/v1/auth/register",
         json={
@@ -91,6 +119,16 @@ def test_csrf_rejects_foreign_origin_without_token(client):
     )
     assert response.status_code == 403
     assert response.json()["code"] == "CSRF_ORIGIN_DENIED"
+
+    # A valid token does not excuse a foreign Origin (defense in depth).
+    token = client.cookies.get("bizflow_csrf")
+    with_token = client.post(
+        "/api/v1/businesses",
+        json={"name": "Bad"},
+        headers={"Origin": "https://evil.example", "X-CSRF-Token": token},
+    )
+    assert with_token.status_code == 403
+    assert with_token.json()["code"] == "CSRF_ORIGIN_DENIED"
 
 
 def test_security_headers_and_correlation_id(client):
@@ -224,6 +262,10 @@ def test_escrow_state_mismatch_blocks_settlement(client, owner, monkeypatch):
     from app.routers import agreements_chain
     from app.services import reconciliation
 
+    # This regression is about post-submit balance mismatch, not getter identity.
+    monkeypatch.setattr(
+        reconciliation, "assert_contract_identity", lambda *a, **k: {"agreement_id": 1}
+    )
     agreement = _active_agreement(client, owner)
     monkeypatch.setattr(
         stellar, "build_soroban_fund_xdr",
@@ -252,6 +294,15 @@ def test_escrow_state_mismatch_blocks_settlement(client, owner, monkeypatch):
     monkeypatch.setattr(
         reconciliation, "read_contract_balances",
         lambda *a, **k: ({"funded": 0, "released": 0, "remaining": 0}, 1),
+    )
+    monkeypatch.setattr(
+        reconciliation, "read_contract_agreement",
+        lambda *a, **k: {
+            "agreement_id": 1, "payer": None, "payee": None, "asset": None,
+            "total_amount": 1000000000, "milestone_count": 2,
+            "funded": 0, "released": 0, "remaining": 0,
+            "authorized": None, "status": "Created",
+        },
     )
     monkeypatch.setattr(agreements_chain.settings, "enforce_escrow_state_verification", True)
 

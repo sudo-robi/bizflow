@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from stellar_sdk import soroban_rpc
+from stellar_sdk import Address, soroban_rpc
 
 from app import models
 from app.config import get_settings
@@ -69,6 +69,11 @@ def _result(**kwargs) -> VerificationResult:
     return VerificationResult(**kwargs)
 
 
+def _normalize_native(value):
+    """SCVal addresses decode to Address objects; use their strkey for matching."""
+    return value.address if isinstance(value, Address) else value
+
+
 def verify_stellar_payment(tx_hash: str, expected: dict | None = None) -> VerificationResult:
     """Fetch a Horizon transaction and independently check it against expectations."""
     try:
@@ -83,9 +88,16 @@ def verify_stellar_payment(tx_hash: str, expected: dict | None = None) -> Verifi
         operations = stellar.fetch_transaction_operations(tx_hash)
     except Exception as exc:
         logger.warning("Horizon operation fetch failed for %s: %s", tx_hash, exc)
-        operations = []
+        operations = None
 
-    payment = next((op for op in operations if op.get("type") == "payment"), {})
+    # Exactly one operation, and it must be the payment we validated. A bundled
+    # extra operation can hide a second effect in the same confirmed transaction.
+    single_payment = (
+        isinstance(operations, list)
+        and len(operations) == 1
+        and operations[0].get("type") == "payment"
+    )
+    payment = operations[0] if single_payment else {}
     # Horizon payment ops expose `from`/`to`; native XLM has no asset_code.
     asset_code = payment.get("asset_code") or (
         "XLM" if payment.get("asset_type") == "native" else payment.get("asset_type")
@@ -117,6 +129,8 @@ def verify_stellar_payment(tx_hash: str, expected: dict | None = None) -> Verifi
     reason = None
     if not successful:
         reason = "Transaction is not confirmed as successful on the ledger"
+    elif not single_payment:
+        reason = "Transaction must contain exactly one payment operation"
     elif not operation_ok:
         reason = "The payment operation was not successful on the ledger"
     elif mismatches:
@@ -126,7 +140,7 @@ def verify_stellar_payment(tx_hash: str, expected: dict | None = None) -> Verifi
         hash=tx_hash,
         confirmed=successful,
         successful=successful,
-        settled=bool(successful and operation_ok and not mismatches),
+        settled=bool(successful and single_payment and operation_ok and not mismatches),
         status=status,
         ledger=int(tx["ledger"]) if tx.get("ledger") is not None else None,
         source_account=source_account,
@@ -135,14 +149,14 @@ def verify_stellar_payment(tx_hash: str, expected: dict | None = None) -> Verifi
         asset_issuer=asset_issuer,
         amount=amount,
         memo=memo,
-        network="testnet",
+        network=stellar.network_name(),
         reason=reason,
     )
 
 
 def _native(xdr_value: str):
     try:
-        return soroban_rpc_scval_to_native(xdr_value)
+        return _normalize_native(soroban_rpc_scval_to_native(xdr_value))
     except Exception as exc:
         logger.warning("Could not decode Soroban event value: %s", exc)
         return None
@@ -153,7 +167,7 @@ def decode_event_topic(value) -> object | None:
     if isinstance(value, str):
         return _native(value)
     try:
-        return soroban_rpc_scval_to_native(value.to_xdr())
+        return _normalize_native(soroban_rpc_scval_to_native(value.to_xdr()))
     except Exception as exc:
         logger.warning("Could not decode Soroban event topic: %s", exc)
         return None
@@ -163,6 +177,58 @@ def soroban_rpc_scval_to_native(value: str):
     from stellar_sdk import scval
 
     return scval.to_native(value)
+
+
+def _topics_match(
+    topics: list,
+    symbol: str,
+    *,
+    agreement_id: str | None,
+    milestone_index: int | None,
+    payer: str | None,
+) -> bool:
+    """Match event topics by *position*, as emitted by contracts/escrow/src/lib.rs.
+
+    topics[0]=symbol, topics[1]=agreement id (u64), and topics[2] is the payer
+    for funded/refunded or the milestone index for approved/released. Scanning
+    the whole topic list allowed a milestone index to impersonate an agreement
+    id (or vice versa); positions are authoritative now.
+    """
+    if not topics or topics[0] != symbol:
+        return False
+    if agreement_id is not None:
+        if agreement_id in topics:
+            return False  # a string id can never be the numeric contract id
+        try:
+            numeric_id = int(agreement_id)
+        except (ValueError, TypeError):
+            return False
+        if len(topics) < 2 or topics[1] != numeric_id:
+            return False
+    if symbol in ("funded", "refunded"):
+        if payer is not None and (len(topics) < 3 or topics[2] != payer):
+            return False
+    elif symbol in ("approved", "released"):
+        if milestone_index is not None and (
+            len(topics) < 3 or topics[2] != int(milestone_index)
+        ):
+            return False
+    elif milestone_index is not None and (
+        len(topics) < 3 or topics[2] != int(milestone_index)
+    ):
+        # Generic verifier callers using a positional third topic still get a
+        # strict check; the real contract shapes are handled above.
+        return False
+    return True
+
+
+def _event_amount_matches(value, amount: Decimal) -> bool:
+    """Escrow event values are stroops, scalar for approve/refund and [amount, total] for others."""
+    candidates = value if isinstance(value, list) else [value]
+    for candidate in candidates:
+        if str(candidate).lstrip("-").isdigit() and Decimal(str(candidate)) == amount * Decimal("10000000"):
+            return True
+    return False
 
 
 def verify_soroban_event(
@@ -175,11 +241,13 @@ def verify_soroban_event(
     amount: Decimal | None = None,
     payer: str | None = None,
 ) -> VerificationResult:
-    """Require a SUCCESS transaction and a matching contract event.
+    """Require a SUCCESS transaction and one exactly matching contract event.
 
     Event topics are decoded from XDR rather than trusting any client-supplied
-    result. For ``fund`` events the emitted value carries [total, funded].
+    result. An unavailable event index is a failed verification, not an empty
+    list that could be mistaken for a harmless absence.
     """
+    network = stellar.network_name()  # fail closed on a misconfigured network
     server = stellar.soroban_server()
     try:
         response = server.get_transaction(tx_hash)
@@ -188,9 +256,10 @@ def verify_soroban_event(
         raise chain_error(f"Could not verify Soroban transaction: {exc}") from exc
 
     status = getattr(response.status, "value", str(response.status))
-    success = status == "SUCCESS"
+    success = status == "SUCCESS" and getattr(response, "ledger", None) is not None
     event_matched = False
     observed_amount: Decimal | None = None
+    events_failed = False
     if success:
         # Event indexing can lag a confirmed transaction by a few ledgers.
         for attempt in range(6):
@@ -203,9 +272,11 @@ def verify_soroban_event(
                     limit=200,
                 )
                 events = [event.model_dump() for event in events_response.events]
+                events_failed = False
             except Exception as exc:
                 logger.warning("Soroban getEvents failed for %s: %s", tx_hash, exc)
                 events = []
+                events_failed = True
 
             for event in events:
                 if str(event.get("transaction_hash")) != tx_hash:
@@ -213,26 +284,14 @@ def verify_soroban_event(
                 if str(event.get("contract_id")) != contract_id:
                     continue
                 topics = [_native(topic) for topic in event.get("topic", [])]
-                if symbol not in topics:
+                if not _topics_match(
+                    topics, symbol,
+                    agreement_id=agreement_id, milestone_index=milestone_index, payer=payer,
+                ):
                     continue
-                if agreement_id is not None:
-                    numeric_id = None
-                    try:
-                        numeric_id = int(agreement_id)
-                    except (ValueError, TypeError):
-                        numeric_id = None
-                    if numeric_id is None or (numeric_id not in topics and agreement_id not in topics):
-                        continue
-                if milestone_index is not None and milestone_index not in topics:
-                    continue
-                if payer is not None and payer not in topics:
+                if amount is not None and not _event_amount_matches(_native(event.get("value", "")), amount):
                     continue
                 if amount is not None:
-                    value = _native(event.get("value", ""))
-                    values = value if isinstance(value, list) else [value]
-                    candidates = [Decimal(str(v)) for v in values if str(v).lstrip("-").isdigit()]
-                    if not any(candidate == amount * Decimal("10000000") for candidate in candidates):
-                        continue
                     observed_amount = amount
                 event_matched = True
                 break
@@ -241,24 +300,28 @@ def verify_soroban_event(
             if attempt + 1 < 6:
                 time.sleep(1.5)
 
-    reason = None if success and event_matched else (
-        "Soroban transaction did not succeed" if not success
-        else f"No matching {symbol} contract event was found"
-    )
+    if not success:
+        reason = "Soroban transaction did not succeed"
+    elif events_failed:
+        reason = "Soroban event index could not be read; settlement is not verified"
+    elif not event_matched:
+        reason = f"No matching {symbol} contract event was found"
+    else:
+        reason = None
     return _result(
         hash=tx_hash,
         confirmed=success,
         successful=success,
         settled=bool(success and event_matched),
         status=status,
-        ledger=response.ledger,
+        ledger=getattr(response, "ledger", None),
         source_account=None,
         destination_account=contract_id,
         asset_code=None,
         asset_issuer=None,
         amount=observed_amount,
         memo=None,
-        network="testnet",
+        network=network,
         contract_id=contract_id,
         event_matched=event_matched,
         reason=reason,
@@ -280,19 +343,24 @@ def verify_soroban_release(
 
 
 def verify_soroban_funding(
-    tx_hash: str, contract_id: str, amount: Decimal, agreement_id: str | None = None
+    tx_hash: str, contract_id: str, amount: Decimal, agreement_id: str | None = None,
+    payer: str | None = None,
 ) -> VerificationResult:
+    """The `funded` event must name the agreement and the trusted payer."""
     return verify_soroban_event(
-        tx_hash, contract_id, "funded", agreement_id=agreement_id, amount=amount
+        tx_hash, contract_id, "funded", agreement_id=agreement_id, amount=amount,
+        payer=payer,
     )
 
 
 def verify_soroban_approval(
-    tx_hash: str, contract_id: str, agreement_id: str, milestone_index: int
+    tx_hash: str, contract_id: str, agreement_id: str, milestone_index: int,
+    amount: Decimal | None = None,
 ) -> VerificationResult:
+    """The `approved` event value must equal the milestone's configured amount."""
     return verify_soroban_event(
         tx_hash, contract_id, "approved",
-        agreement_id=agreement_id, milestone_index=milestone_index,
+        agreement_id=agreement_id, milestone_index=milestone_index, amount=amount,
     )
 
 

@@ -27,10 +27,20 @@ from tests.conftest import TestSession, create_invoice, create_supplier, registe
 CONTRACT_ID = get_settings().stellar_escrow_contract_id
 
 
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """Event-layer stubs replace chain reads in this unit suite."""
+    from app.services import reconciliation
+
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
+
+
 def _set_onchain_id(agreement_id: str, value: int = 1) -> None:
     db = TestSession()
     try:
-        db.get(models.PaymentAgreement, agreement_id).onchain_agreement_id = value
+        row = db.get(models.PaymentAgreement, agreement_id)
+        row.onchain_agreement_id = value
+        row.escrow_contract_id = CONTRACT_ID
         db.commit()
     finally:
         db.close()
@@ -42,6 +52,7 @@ def _activate_status(agreement_id: str) -> None:
         agreement = db.get(models.PaymentAgreement, agreement_id)
         agreement.status = "active"
         agreement.onchain_agreement_id = 1
+        agreement.escrow_contract_id = CONTRACT_ID
         db.commit()
     finally:
         db.close()
@@ -248,14 +259,21 @@ def test_prepare_and_submit_escrow_fund_rejections(client, owner, supplier_actor
         lambda *a, **k: stellar.PreparedTransaction(xdr="AAAA", hash="f" * 64),
     )
     prepare_path = f"/api/v1/agreements/{agreement['id']}/prepare-fund"
-    prepared = client.post(
+    # A client-supplied on-chain id can never overwrite the server-derived binding.
+    override = client.post(
         prepare_path, headers=owner.headers,
         json={"onchain_agreement_id": 7, "source_account": Keypair.random().public_key},
+    )
+    assert override.status_code == 400
+    assert override.json()["code"] == "ONCHAIN_ID_READ_ONLY"
+    prepared = client.post(
+        prepare_path, headers=owner.headers,
+        json={"source_account": Keypair.random().public_key},
     )
     assert prepared.status_code == 200, prepared.text
     assert client.get(
         f"/api/v1/agreements/{agreement['id']}", headers=owner.headers
-    ).json()["onchain_agreement_id"] == 7
+    ).json()["onchain_agreement_id"] == 1
     submit_path = f"/api/v1/agreements/{agreement['id']}/fund-escrow"
     xdr = prepared.json()["xdr"]
     monkeypatch.setattr(stellar, "transaction_hash", lambda _xdr: prepared.json()["hash"])

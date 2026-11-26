@@ -5,16 +5,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
 from stellar_sdk import Keypair
 
 from app import models
 from app.config import get_settings
-from app.services import stellar, verification
+from app.services import reconciliation, stellar, verification
 from app.utils import utcnow
 from tests.conftest import TestSession, create_supplier
 
 CONTRACT_ID = get_settings().stellar_escrow_contract_id
 HASH = "9" * 64
+
+
+@pytest.fixture(autouse=True)
+def _stub_contract_identity(monkeypatch):
+    """Event-layer stubs replace chain reads in this unit suite."""
+    monkeypatch.setattr(reconciliation, "assert_contract_identity", lambda *a, **k: {})
 
 
 def _agreement(client, owner):

@@ -8,7 +8,11 @@ FastAPI backend for BizFlow, a Stellar **testnet-only** business payments platfo
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+# optional, exact versions captured from this repository's venv:
+.venv/bin/pip install -r requirements.txt -c constraints.txt
 ```
+
+CI and the Docker image use Python 3.12.
 
 Required environment variables (see `app/config.py` for all defaults):
 
@@ -33,12 +37,16 @@ It never invents a contract ID and never stores or returns private keys.
 .venv/bin/alembic upgrade head
 .venv/bin/uvicorn app.main:app --reload --port 8000
 
-# Local SQLite (schema is created at startup)
-USE_SQLITE=true SQLITE_PATH=./bizflow.sqlite3 JWT_SECRET=change-me \
+# Local SQLite (schema is created at startup). NEVER reuse a weak secret, even
+# in development: generate a fresh one with the command below.
+DEV_JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+USE_SQLITE=true SQLITE_PATH=./bizflow.sqlite3 JWT_SECRET="$DEV_JWT_SECRET" \
   .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Interactive docs: `http://localhost:8000/docs`. Health: `/health`.
+Interactive docs: `http://localhost:8000/docs`. Health: `/health`; readiness with a
+real DB probe: `/health/ready`; machine-readable API schema: `/openapi.json`.
+Cookie-authenticated writes require the `X-CSRF-Token` double-submit header.
 
 ## Tests
 
@@ -48,7 +56,10 @@ Interactive docs: `http://localhost:8000/docs`. Health: `/health`.
 
 Tests use a real in-memory SQLite database, isolated per test. Only external
 Horizon/RPC boundaries are mocked; verification logic, XDR construction, PDF
-generation and all settlement rules run for real.
+generation and all settlement rules run for real. The final suite has 262 tests.
+
+CI-only correctness lint: `ruff check --isolated --select E9,F63,F7,F82 app tests`.
+Full ruff and `mypy app` currently report pre-existing findings; see `docs/TESTING.md`.
 
 ## API notes
 

@@ -1,0 +1,7 @@
+# Soroban SDK 30 requires the wasm32v1-none target on Rust 1.84+.
+# wasm32-unknown-unknown is rejected by the SDK's build script.
+[toolchain]
+channel = "stable"
+components = ["clippy"]
+targets = ["wasm32v1-none"]
+profile = "minimal"

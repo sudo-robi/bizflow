@@ -1,6 +1,6 @@
 # BizFlow Frontend
 
-Premium B2B fintech frontend for Stellar-based business payments. Built with Next.js 15 (App Router), TypeScript, Tailwind CSS 3, React Hook Form + Zod, Recharts and lucide-react.
+Premium B2B fintech frontend for Stellar-based business payments. Built with Next.js 15 (App Router), TypeScript, Tailwind CSS 3, React Hook Form + Zod, Recharts and lucide-react. CI and the Docker image use Node 22.
 
 ## Setup
 
@@ -35,7 +35,8 @@ NEXT_PUBLIC_API_BASE_URL=https://your-api.example/api/v1
 ## Stellar / Freighter security model
 
 - Testnet is enforced (`Test SDF Network ; September 2015`) before any signature is requested.
-- `POST /payments/prepare` (or the Soroban milestone `prepare-release` endpoint) returns the **real unsigned XDR**, which is parsed and displayed in full before signing.
+- `POST /payments/prepare` (or the Soroban milestone `prepare-release` endpoint) returns the **real unsigned XDR**, produced and stored by the backend — the browser never constructs one.
+- Before signing, the XDR is parsed locally and the confirmation modal shows its human-readable fields (amount, asset, source, destination, fee, memo, operation type and precomputed hash). The raw XDR string itself is **not** rendered in the modal; Freighter displays the transaction it is asked to sign.
 - The user must click **Approve & Sign**, which triggers a local Freighter signature. Only then is `signed_xdr` submitted to the backend.
 - Transaction hashes are always returned by the backend / signed transaction — never fabricated in the browser.
 - The app never requests private keys, seed phrases or mnemonic phrases.

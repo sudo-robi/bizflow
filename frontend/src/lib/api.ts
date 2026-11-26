@@ -54,7 +54,11 @@ export interface RequestOptions extends Omit<RequestInit, "body"> {
   public?: boolean;
 }
 
-/** Double-submit CSRF token set by the backend on login/register. */
+/**
+ * Double-submit CSRF token set by the backend on login/register. It is an HMAC
+ * of the current session JWT's jti+exp; the server derives the same value from
+ * the httpOnly session cookie, so a swapped or stale cookie value cannot match.
+ */
 function csrfToken(): string | null {
   try {
     if (typeof document === "undefined") return null;

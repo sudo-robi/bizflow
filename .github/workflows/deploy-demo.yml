@@ -1,0 +1,169 @@
+name: Deploy demo (testnet)
+
+# This workflow is intentionally NOT run by this repository's current
+# engineering cycle. It requires a real host and the seven secrets listed in
+# docs/DEPLOYMENT.md. Actions remain on mutable major version tags; full SHA
+# pinning is a documented residual hardening item.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to deploy (for example v0.5.0). Defaults to the pushed tag."
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: testnet-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: testnet-demo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="$GITHUB_REF_NAME"; fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "Refusing to deploy a non-v ref: $TAG" >&2; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying release $TAG"
+
+      # A tag push also triggers the Release workflow. Wait for both images to
+      # exist before touching the demo host, so a deploy never partially pulls.
+      - name: Verify versioned image tags exist in GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for image in bizflow-backend bizflow-frontend; do
+            ref="ghcr.io/$GHCR_OWNER/$image:${{ steps.meta.outputs.tag }}"
+            found=0
+            for attempt in $(seq 1 20); do
+              if docker manifest inspect "$ref" > /dev/null 2>&1; then
+                echo "Verified $ref"
+                found=1
+                break
+              fi
+              echo "Waiting for $ref (attempt $attempt/20)"
+              sleep 30
+            done
+            test "$found" -eq 1 || { echo "Missing image tag: $ref" >&2; exit 1; }
+          done
+
+      - name: Prepare SSH key
+        env:
+          DEMO_SSH_PRIVATE_KEY_SECRET: ${{ secrets.DEMO_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEMO_SSH_PRIVATE_KEY_SECRET" > "$HOME/.ssh/demo_key"
+          chmod 600 "$HOME/.ssh/demo_key"
+
+      # Values are taken from secrets by NAME ONLY. %q quoting keeps unusual
+      # characters from becoming shell syntax when the file is sourced remotely.
+      - name: Write and transfer remote deploy environment
+        env:
+          DEPLOY_TAG: ${{ steps.meta.outputs.tag }}
+          DEPLOY_PATH_VALUE: ${{ secrets.DEMO_DEPLOY_PATH }}
+          DEPLOY_JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DEPLOY_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEPLOY_ESCROW_ID: ${{ secrets.STELLAR_ESCROW_CONTRACT_ID }}
+          DEPLOY_SSH_USER: ${{ secrets.DEMO_SSH_USER }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEMO_HOST }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            printf 'DEPLOY_PATH=%q\n' "$DEPLOY_PATH_VALUE"
+            printf 'IMAGE_TAG=%q\n' "$DEPLOY_TAG"
+            printf 'GHCR_OWNER=%q\n' "$GHCR_OWNER"
+            printf 'JWT_SECRET=%q\n' "$DEPLOY_JWT_SECRET"
+            printf 'POSTGRES_PASSWORD=%q\n' "$DEPLOY_POSTGRES_PASSWORD"
+            printf 'STELLAR_ESCROW_CONTRACT_ID=%q\n' "$DEPLOY_ESCROW_ID"
+          } > /tmp/bizflow-deploy.env
+          scp -i "$HOME/.ssh/demo_key" -o StrictHostKeyChecking=accept-new \
+            /tmp/bizflow-deploy.env \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/tmp/bizflow-deploy.env"
+
+      - name: Pull, deploy, migrate and smoke-test on the demo host
+        env:
+          DEPLOY_SSH_USER: ${{ secrets.DEMO_SSH_USER }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEMO_HOST }}
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/demo_key" -o StrictHostKeyChecking=accept-new \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          # Existing host .env supplies ports and non-secret defaults; the
+          # transferred file supplies this release's tag and secrets.
+          set -a
+          if [ -f "$DEPLOY_PATH/.env" ]; then . "$DEPLOY_PATH/.env"; fi
+          . /tmp/bizflow-deploy.env
+          set +a
+          cd "$DEPLOY_PATH"
+
+          cat > docker-compose.demo.yml <<YAML
+          services:
+            backend:
+              image: ghcr.io/${GHCR_OWNER}/bizflow-backend:${IMAGE_TAG}
+            frontend:
+              image: ghcr.io/${GHCR_OWNER}/bizflow-frontend:${IMAGE_TAG}
+          YAML
+
+          COMPOSE="docker compose -f docker-compose.yml -f docker-compose.demo.yml"
+          $COMPOSE pull backend frontend
+          $COMPOSE up -d --remove-orphans backend frontend
+          $COMPOSE exec -T backend alembic upgrade head
+
+          BACKEND_PORT="${BACKEND_PORT:-8000}"
+          FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/health/ready" > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          curl -fsS "http://127.0.0.1:${BACKEND_PORT}/health/ready"
+          curl -fsS -o /dev/null -w 'frontend HTTP %{http_code}\n' \
+            "http://127.0.0.1:${FRONTEND_PORT}/"
+          rm -f /tmp/bizflow-deploy.env /tmp/bizflow-deploy.env.scp
+          echo "Demo deployment of ${IMAGE_TAG} smoke-tested successfully."
+          REMOTE
+
+      - name: Manual rollback instructions (no automatic rollback)
+        run: |
+          cat <<'EOF'
+          ROLLBACK IS MANUAL AND REQUIRES AN OPERATOR.
+          On the demo host, in $DEPLOY_PATH:
+            1. Set PREVIOUS_TAG to the last known-good release tag.
+            2. Re-render docker-compose.demo.yml with that tag.
+            3. docker compose -f docker-compose.yml -f docker-compose.demo.yml pull backend frontend
+            4. docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --remove-orphans backend frontend
+            5. Verify /health/ready and the frontend again.
+          Database schema is not downgraded automatically; only roll back to a
+          release compatible with the current Alembic head (see docs/DEPLOYMENT.md).
+          EOF
